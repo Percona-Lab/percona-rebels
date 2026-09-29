@@ -14,8 +14,9 @@ strikes back.
 </p>
 
 It's one HTML page and one script: plain canvas at 224×288 (Galaga's own resolution) scaled up in whole pixels, a 60 fps
-fixed timestep, and Web Audio for every sound effect and the chiptune loop. No framework, no build step, no tracking, no
-network calls. Clone it and open `index.html`, or serve the folder from anywhere.
+fixed timestep, and Web Audio for every sound effect and the chiptune loop. No framework, no build step, no tracking.
+The only network call is the world high-score table (below). Clone it and open `index.html`, or serve the folder from
+anywhere.
 
 ## Controls
 
@@ -59,8 +60,21 @@ Percona tools drop as you break free:
 | Percona Toolkit | `pt-kill` smart bomb: hits everything on screen |
 
 Classic rules: 3 lives, a bonus ship every 20,000 points, kills while an enemy dives score double, a combo multiplier up
-to ×8, a no-hit bonus per wave, and a top-10 table with initials, kept in your browser's `localStorage`.
-`prefers-reduced-motion` cuts the screen shake, flashes and warp streaks.
+to ×8, a no-hit bonus per wave, and initials entry for the high-score tables. `prefers-reduced-motion` cuts the screen
+shake, flashes and warp streaks.
+
+## World high scores
+
+Everyone playing on GitHub Pages shares one **WORLD TOP 10**. It lives in a Google Sheet behind a small Google Apps
+Script web app, [`leaderboard/Code.gs`](leaderboard/Code.gs), which checks each score before saving it: sensible
+initials, points that fit the time played and waves reached, no duplicates, a rate limit.
+
+* **What's sent:** your three initials, score, wave, seconds played and kill count, and only when you enter initials after
+  a game. Nothing else: no names, no ids, and Apps Script never sees your IP address.
+* **Your own table** stays in your browser's `localStorage`, and the game falls back to it if the world table can't be
+  reached.
+* **Running your own copy:** set up the script with [`leaderboard/SETUP.md`](leaderboard/SETUP.md) and put its URL in
+  `window.REBELS_LEADERBOARD` in `index.html`, or remove that line to play offline only.
 
 ## Changing the game
 
@@ -85,3 +99,4 @@ off here: no directory data is part of this repository.
   Percona Operators, Percona for MySQL) are trademarks of Percona LLC. They are **not** covered by the MIT License; see
   [LICENSE](LICENSE).
 * All enemy and boss art is original. No third-party logos or trademarks are used.
+* `leaderboard/Code.gs` is part of the code and also MIT licensed.

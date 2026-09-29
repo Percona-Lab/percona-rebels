@@ -541,7 +541,45 @@
     if (!Array.isArray(s) || !s.length) s = DEFAULT_SCORES.map(([n, sc, w]) => ({ n, s: sc, w }));
     G.scores = s.filter((x) => x && typeof x.s === "number").sort((a, b) => b.s - a.s).slice(0, 10);
   }
-  const hiScore = () => Math.max(G.scores[0]?.s || 0, G.world && !G.world.demo ? G.world.score : 0);
+  const hiScore = () => Math.max(G.scores[0]?.s || 0, World.top?.[0]?.s || 0, G.world && !G.world.demo ? G.world.score : 0);
+
+  /* ================================================================== world high scores (optional, public build)
+     A Google Apps Script web app in front of a Google Sheet keeps one table for every player (leaderboard/Code.gs).
+     The page sets window.REBELS_LEADERBOARD to its /exec URL; without it the game only keeps its local table.
+     Only initials, score, wave, play time and kill count are sent. */
+  const LEADERBOARD_URL = String(window.REBELS_LEADERBOARD || "");
+  const World = {
+    top: null, status: LEADERBOARD_URL ? "loading" : "off", rank: null, sending: false, note: "", loadedAt: 0,
+    get on() { return !!LEADERBOARD_URL; },
+    async call(params, body) {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
+      try {
+        const url = LEADERBOARD_URL + (LEADERBOARD_URL.includes("?") ? "&" : "?") + new URLSearchParams(params);
+        // text/plain keeps the POST a "simple" request (no CORS preflight), which Apps Script needs
+        const r = await fetch(url, body ? { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "text/plain;charset=utf-8" }, signal: ctl.signal } : { signal: ctl.signal });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return await r.json();
+      } finally { clearTimeout(timer); }
+    },
+    clean(list) { return (Array.isArray(list) ? list : []).filter((x) => x && typeof x.s === "number").slice(0, 10).map((x) => ({ n: String(x.n || "???").slice(0, 3), s: x.s, w: x.w | 0 })); },
+    async refresh() {
+      if (!this.on || this.sending) return;
+      this.loadedAt = G.t;
+      try { const d = await this.call({ action: "top" }); if (!d || !d.ok) throw new Error("bad reply"); this.top = this.clean(d.top); this.status = "ok"; }
+      catch { if (this.status !== "ok") this.status = "offline"; }
+    },
+    qualifies(score) { return this.on && this.status === "ok" && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
+    async submit(entry) {
+      if (!this.on || this.status === "off") return;
+      this.sending = true; this.rank = null; this.note = "SENDING TO THE WORLD TABLE...";
+      try {
+        const d = await this.call({ action: "submit" }, entry);
+        if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `WORLD RANK #${d.rank}` : "SENT TO THE WORLD TABLE"; }
+        else this.note = "THE WORLD TABLE SAID NO";
+      } catch { this.note = "WORLD TABLE OFFLINE. SAVED HERE."; }
+      finally { this.sending = false; }
+    },
+  };
   function toast(msg) { G.toast = { msg, t: 0 }; }
 
   /* ================================================================== stars */
@@ -1120,9 +1158,13 @@
   }
 
   /* ================================================================== attract mode */
-  const ATTRACT = [["title", 9], ["enemies", 9], ["powerups", 7], ["demo", 26], ["scores", 7]];
+  const ATTRACT = [["title", 9], ["enemies", 9], ["powerups", 7], ["demo", 26], ["scores", 7], ["world", 7]];
   function setAttract(i) {
     G.attract.i = ((i % ATTRACT.length) + ATTRACT.length) % ATTRACT.length; G.attract.t = 0; G.demo = null;
+    if (ATTRACT[G.attract.i][0] === "world") {
+      if (World.status !== "ok") { if (World.on && G.t - World.loadedAt > 30) World.refresh(); setAttract(G.attract.i + 1); return; }
+      if (G.t - World.loadedAt > 60) World.refresh();
+    }
     if (ATTRACT[G.attract.i][0] === "demo") { G.demo = newWorld(true); G.demo.wave = G.demoCount++ % RULES.bossEvery; startWave(G.demo); }
   }
   function updateAttract(dt) {
@@ -1177,11 +1219,13 @@
     const y = 58 + POWERUPS.length * 40 + 2;
     text(`COMBOS MULTIPLY YOUR SCORE UP TO X${RULES.maxCombo}`, W / 2, y, C.teal, { small: true, align: "center" });
   }
-  function renderScoreTable(highlight) {
-    text("HIGH SCORES", W / 2, 30, C.yellow, { align: "center", shadow: C.purple });
+  function renderScoreTable(highlight, list = G.scores, title = World.on ? "YOUR HIGH SCORES" : "HIGH SCORES", note = "") {
+    text(title, W / 2, 30, C.yellow, { align: "center", shadow: C.purple });
     text("RANK   SCORE   NAME  WAVE", W / 2, 48, C.lilac, { small: true, align: "center" });
     const ord = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH", "9TH", "10TH"];
-    G.scores.forEach((s, i) => {
+    if (note) text(note, W / 2, 228, C.teal, { small: true, align: "center" });
+    if (!list || !list.length) { text(World.status === "offline" ? "OFFLINE RIGHT NOW" : list ? "NO SCORES YET. BE THE FIRST!" : "LOADING...", W / 2, 120, C.dim, { small: true, align: "center" }); return; }
+    list.forEach((s, i) => {
       if (i === highlight && !blink(4)) return;
       const col = i === highlight ? C.yellow : i === 0 ? C.yellow : i % 2 ? C.white : C.lilac;
       const y = 60 + i * 16;
@@ -1202,9 +1246,10 @@
   }
   function toGameOver() {
     const w = G.world; Music.stop(); AU.over();
-    G.mode = "gameover"; G.over = { t: 0, score: w.score, wave: w.wave, kills: w.kills, acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
+    G.mode = "gameover"; G.over = { t: 0, score: w.score, wave: w.wave, kills: w.kills, secs: Math.round(w.t), acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
+    World.rank = null; World.note = "";
   }
-  const qualifies = (s) => s > 0 && (G.scores.length < 10 || s > G.scores[G.scores.length - 1].s);
+  const qualifies = (s) => (s > 0 && (G.scores.length < 10 || s > G.scores[G.scores.length - 1].s)) || World.qualifies(s);
   function finishGameOver() {
     if (qualifies(G.over.score)) { const last = String(store.get("initials", "AAA")).toUpperCase(); G.mode = "initials"; G.ini = { letters: (last + "AAA").slice(0, 3).split(""), pos: 0, t: 0 }; }
     else { G.mode = "scores"; G.scoresT = 0; G.lastEntry = -1; }
@@ -1221,6 +1266,7 @@
       const entry = { n, s: G.over.score, w: G.over.wave, d: new Date().toISOString().slice(0, 10) };
       G.scores.push(entry); G.scores.sort((a, b) => b.s - a.s); G.scores = G.scores.slice(0, 10); store.set("scores", G.scores);
       G.lastEntry = G.scores.indexOf(entry); G.mode = "scores"; G.scoresT = 0; AU.oneUp();
+      World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 1 });
     },
   };
   function renderGameOver() {
@@ -1447,7 +1493,7 @@
       case "game": if (!G.paused) { stepWorld(G.world, dt, control()); if (G.world.phase === "over" && G.world.phaseT > 2.6) toGameOver(); } break;
       case "gameover": G.over.t += dt; if (G.world) stepWorld(G.world, dt, {}); if (G.over.t > 7) finishGameOver(); break;
       case "initials": G.ini.t += dt; if (G.ini.t > 45) Ini.submit(); break;
-      case "scores": G.scoresT += dt; if (G.scoresT > 9) { G.mode = "attract"; setAttract(0); } break;
+      case "scores": G.scoresT += dt; if (G.scoresT > (World.on ? 12 : 9)) { G.mode = "attract"; setAttract(0); } break;
     }
   }
   function render() {
@@ -1456,11 +1502,16 @@
     if (G.mode === "attract" || G.mode === "pilot") {
       const name = ATTRACT[G.attract.i][0];
       if (name === "title" || G.mode === "pilot") renderTitle(); else if (name === "enemies") renderEnemyTable(); else if (name === "powerups") renderPowerTable();
-      else if (name === "scores") renderScoreTable(-1); else if (name === "demo" && G.demo) renderWorld(G.demo);
+      else if (name === "scores") renderScoreTable(-1); else if (name === "world") renderScoreTable(-1, World.top, "WORLD TOP 10");
+      else if (name === "demo" && G.demo) renderWorld(G.demo);
     } else if (G.mode === "game") { renderWorld(G.world); if (G.paused) renderPause(); }
     else if (G.mode === "gameover") { renderWorld(G.world); renderGameOver(); }
     else if (G.mode === "initials") renderInitials();
-    else if (G.mode === "scores") renderScoreTable(G.lastEntry);
+    else if (G.mode === "scores") {
+      // after a game: your table first, then the world table with your rank
+      if (World.on && G.scoresT > 5) renderScoreTable(World.rank ? World.rank - 1 : -1, World.top, "WORLD TOP 10", World.note);
+      else renderScoreTable(G.lastEntry, G.scores, undefined, World.on ? World.note : "");
+    }
     renderHudTop();
     if (G.toast) text(G.toast.msg, W / 2, 40, C.teal, { small: true, align: "center", shadow: C.ink });
     present();
@@ -1479,12 +1530,12 @@
     buildShip(C.white);
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple);
     if (G.pilot) buildShip(G.pilot.color);
-    loadLocalSprites(); Pilot.load(); updateSoundIcon();
+    loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh();
     resize(); addEventListener("resize", resize); applyCrt(); setAttract(0);
     requestAnimationFrame(frame);
     // hooks for tests and the curious
     window.PERCONA_REBELS = {
-      get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES,
+      get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES, World,
       give(id) { const P = POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
       warpTo(n) { if (G.world) { G.world.wave = Math.max(0, n - 1); startWave(G.world); } },
     };

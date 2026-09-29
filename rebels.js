@@ -546,10 +546,12 @@
   /* ================================================================== world high scores (optional, public build)
      A Google Apps Script web app in front of a Google Sheet keeps one table for every player (leaderboard/Code.gs).
      The page sets window.REBELS_LEADERBOARD to its /exec URL; without it the game only keeps its local table.
-     Only initials, score, wave, play time and kill count are sent. */
+     Each game asks for a one-time ticket when it starts; the server times the run itself and accepts one score per
+     ticket. Big scores wait for a human check before they show. Only initials, score, wave, play time and kill count
+     are sent. */
   const LEADERBOARD_URL = String(window.REBELS_LEADERBOARD || "");
   const World = {
-    top: null, status: LEADERBOARD_URL ? "loading" : "off", rank: null, sending: false, note: "", loadedAt: 0,
+    top: null, status: LEADERBOARD_URL ? "loading" : "off", rank: null, sending: false, note: "", loadedAt: 0, ticket: null,
     get on() { return !!LEADERBOARD_URL; },
     async call(params, body) {
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
@@ -568,14 +570,21 @@
       try { const d = await this.call({ action: "top" }); if (!d || !d.ok) throw new Error("bad reply"); this.top = this.clean(d.top); this.status = "ok"; }
       catch { if (this.status !== "ok") this.status = "offline"; }
     },
+    async startRun() {
+      this.ticket = null;
+      if (!this.on) return;
+      try { const d = await this.call({ action: "start" }); if (d && d.ok && d.ticket) this.ticket = String(d.ticket); } catch { /* no ticket: the score stays local */ }
+    },
     qualifies(score) { return this.on && this.status === "ok" && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
     async submit(entry) {
       if (!this.on || this.status === "off") return;
       this.sending = true; this.rank = null; this.note = "SENDING TO THE WORLD TABLE...";
+      const ticket = this.ticket; this.ticket = null;
       try {
-        const d = await this.call({ action: "submit" }, entry);
-        if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `WORLD RANK #${d.rank}` : "SENT TO THE WORLD TABLE"; }
-        else this.note = "THE WORLD TABLE SAID NO";
+        const d = await this.call({ action: "submit" }, { ...entry, x: ticket || "" });
+        if (d && d.ok && d.pending) { this.top = this.clean(d.top); this.status = "ok"; this.note = "BIG SCORE! IT SHOWS ONCE A HUMAN CHECKS IT"; }
+        else if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `WORLD RANK #${d.rank}` : "SENT TO THE WORLD TABLE"; }
+        else this.note = d && d.error === "ticket" ? "COULDN'T VERIFY THIS RUN. SAVED HERE." : d && d.error === "busy" ? "WORLD TABLE BUSY. SAVED HERE." : "THE WORLD TABLE SAID NO";
       } catch { this.note = "WORLD TABLE OFFLINE. SAVED HERE."; }
       finally { this.sending = false; }
     },
@@ -1242,7 +1251,7 @@
   }
   function beginGame() {
     G.mode = "game"; G.paused = false; G.pauseEsc = false; G.demo = null; G.over = null;
-    G.world = newWorld(false); AU.start(); startWave(G.world);
+    G.world = newWorld(false); AU.start(); startWave(G.world); World.startRun();
   }
   function toGameOver() {
     const w = G.world; Music.stop(); AU.over();
@@ -1266,7 +1275,7 @@
       const entry = { n, s: G.over.score, w: G.over.wave, d: new Date().toISOString().slice(0, 10) };
       G.scores.push(entry); G.scores.sort((a, b) => b.s - a.s); G.scores = G.scores.slice(0, 10); store.set("scores", G.scores);
       G.lastEntry = G.scores.indexOf(entry); G.mode = "scores"; G.scoresT = 0; AU.oneUp();
-      World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 1 });
+      World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 2 });
     },
   };
   function renderGameOver() {
@@ -1533,8 +1542,9 @@
     loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh();
     resize(); addEventListener("resize", resize); applyCrt(); setAttract(0);
     requestAnimationFrame(frame);
-    // hooks for tests and the curious
-    window.PERCONA_REBELS = {
+    // hooks for tests: only in builds without the shared world table, so they can't be used to fake a world score
+    const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, version: 2 };
+    window.PERCONA_REBELS = World.on ? info : {
       get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES, World,
       give(id) { const P = POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
       warpTo(n) { if (G.world) { G.world.wave = Math.max(0, n - 1); startWave(G.world); } },

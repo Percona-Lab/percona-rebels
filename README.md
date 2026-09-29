@@ -66,8 +66,12 @@ shake, flashes and warp streaks.
 ## World high scores
 
 Everyone playing on GitHub Pages shares one **WORLD TOP 10**. It lives in a Google Sheet behind a small Google Apps
-Script web app, [`leaderboard/Code.gs`](leaderboard/Code.gs), which checks each score before saving it: sensible
-initials, points that fit the time played and waves reached, no duplicates, a rate limit.
+Script web app, [`leaderboard/Code.gs`](leaderboard/Code.gs). Every game gets a one-time ticket when it starts and
+the script times the run itself, so a score can't claim more play time than really passed. The numbers have to fit
+the game's rules, and very big scores wait for a human to check them before they show up.
+
+Yes, you can read the code and, with enough patience, fool it. It's a game about open source: have fun with the code,
+but faked scores get removed.
 
 * **What's sent:** your three initials, score, wave, seconds played and kill count, and only when you enter initials after
   a game. Nothing else: no names, no ids, and Apps Script never sees your IP address.

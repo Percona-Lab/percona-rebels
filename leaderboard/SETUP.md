@@ -38,16 +38,28 @@ The attract mode then shows **WORLD TOP 10**, and after a game you see your worl
 
 ## Running it
 
-* **Moderation:** delete a row in the `scores` sheet. It's gone from the game within 20 seconds.
-* **What's stored:** time, initials, score, wave, seconds played, kills, game version. Apps Script never sees players'
-  IP addresses, and the game sends no names or ids.
-* **Limits:** `Code.gs` rejects impossible scores (too many points for the time played or the waves reached, scores
-  that aren't multiples of 10), blocked initials, duplicates, and more than 30 submissions a minute. Tune the constants
-  at the top of the file. A determined cheater can still post a plausible fake score; delete it.
+* **Review:** scores above `REVIEW_ABOVE` (100,000 to start) are saved with the **approved** box unticked and stay
+  hidden until you tick it. Untick any row to hide it, or delete the row. Changes show in the game within 20 seconds.
+* **What's stored:** time, initials, score, wave, seconds played, kills, game version, approved. Apps Script never sees
+  players' IP addresses, and the game sends no names or ids.
+* **Anti-cheat:** every game gets a one-time ticket when it starts, and the script times the run itself: a score can't
+  claim more play time than really passed, and each ticket gives one score. The numbers must also fit the game (points
+  per kill, kills per wave and per second, seconds per wave, multiples of 10), initials are filtered, and starts and
+  scores are rate-limited. Tune the constants at the top of `Code.gs`. A patient cheater who plays along in real time
+  with a doctored game can still get a plausible score in; that's what the review threshold is for.
 * **Changing the script:** after editing, use **Deploy → Manage deployments → edit (pencil) → Version: New version →
   Deploy**. The URL stays the same.
 * **Turning it off:** empty the URL in `leaderboard/config.json` and export again, or archive the deployment. The game
   falls back to its per-browser table.
+
+## Upgrading from the first version (no tickets)
+
+1. Paste the new `Code.gs` over the old one and **Save**.
+2. Run **setup** once. It adds the **approved** column: existing scores at or below `REVIEW_ABOVE` are ticked, higher
+   ones are left unticked for you to check.
+3. **Deploy → Manage deployments →** edit (pencil) **→ Version: New version → Deploy**. The URL stays the same.
+4. Update every copy of the game that talks to the table (GitHub Pages, and the CHAOS page at Percona). Older copies
+   don't ask for tickets, so after the upgrade their scores stay local.
 
 ## Troubleshooting
 

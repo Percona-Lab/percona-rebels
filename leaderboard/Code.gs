@@ -23,6 +23,7 @@
 
 const SHEET_NAME = "scores";
 const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved"];
+const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General"];
 const REVIEW_ABOVE = 100000;     // scores above this wait for a tick in the "approved" column
 const KEEP_ROWS = 2000;          // the sheet is trimmed to the best KEEP_ROWS scores
 const CACHE_SECONDS = 20;        // how long the top 10 is cached between reads
@@ -69,8 +70,11 @@ function doPost(e) {
   try {
     const sheet = sheet_();
     const pending = entry.s > REVIEW_ABOVE;
-    sheet.appendRow([new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending]);
-    checkbox_(sheet.getRange(sheet.getLastRow(), HEADER.length));
+    // explicit formats first: a date-formatted cell would hand numbers back as dates, and "007" would become 7
+    const row = sheet.getRange(sheet.getLastRow() + 1, 1, 1, HEADER.length);
+    row.setNumberFormats([FORMATS]);
+    row.setValues([[new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending]]);
+    checkbox_(sheet.getRange(row.getRow(), HEADER.length));
     const rows = rows_();
     // rank among the scores people can see (ties share a rank); a pending score is told where it would land
     const rank = 1 + rows.filter(function (r) { return r.s > entry.s; }).length;
@@ -109,15 +113,22 @@ function underLimit_(cache, name, max) {
   return true;
 }
 
-/** Visible rows: approved, or from before the approved column existed. */
+/** A number from a cell, even if the sheet formatted it as a date (Sheets then returns a Date for it). */
+function num_(v) {
+  if (v instanceof Date) return Math.round((v.getTime() - new Date(1899, 11, 30).getTime()) / 86400000);
+  return Number(v);
+}
+
+/** Visible rows: approved (or from before the approved column existed) and within the game's limits. */
 function rows_() {
   const values = sheet_().getDataRange().getValues();
   const out = [];
   for (let i = 1; i < values.length; i++) {                   // row 0 is the header
     const r = values[i];
-    const s = Number(r[2]);
+    const n = String(r[1] || "").toUpperCase().slice(0, 3), s = num_(r[2]), w = num_(r[3]);
     const approved = r[7] === true || r[7] === "" || r[7] === undefined || String(r[7]).toUpperCase() === "TRUE";
-    if (r[1] && s > 0 && approved) out.push({ n: String(r[1]).slice(0, 3), s: s, w: Number(r[3]) || 0 });
+    const sane = n.trim().length > 0 && Number.isInteger(s) && s > 0 && s <= 5000000 && Number.isInteger(w) && w >= 1 && w <= 500;
+    if (approved && sane) out.push({ n: n, s: s, w: w });
   }
   return out;
 }
@@ -162,12 +173,18 @@ function json_(obj) {
 /**
  * Run once from the editor (Run ▶ setup): creates or upgrades the sheet and grants permissions before deploying.
  * Scores saved before the "approved" column existed are approved if they're at or below REVIEW_ABOVE and left
- * unticked (hidden) if they're above it, so they get the same review as new ones.
+ * unticked (hidden) if they're above it, so they get the same review as new ones. It also repairs cells that the
+ * sheet formatted as dates (they make scores read back as huge numbers). Safe to run again at any time.
  */
 function setup() {
   const sheet = sheet_();
   const last = sheet.getLastRow();
   if (last < 2) return;
+  // repair formats: numbers written into date-formatted cells read back as dates; convert them and fix the formats
+  const body = sheet.getRange(2, 1, last - 1, 7);
+  const fixed = body.getValues().map(function (r) { return [r[0], String(r[1]), num_(r[2]), num_(r[3]), num_(r[4]), num_(r[5]), num_(r[6])]; });
+  body.setNumberFormats(fixed.map(function () { return FORMATS.slice(0, 7); }));
+  body.setValues(fixed);
   const range = sheet.getRange(2, HEADER.length, last - 1, 1);
   const scores = sheet.getRange(2, 3, last - 1, 1).getValues();
   const flags = range.getValues().map(function (r, i) { return [r[0] === "" ? Number(scores[i][0]) <= REVIEW_ABOVE : r[0]]; });

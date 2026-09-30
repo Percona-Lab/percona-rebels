@@ -565,7 +565,8 @@
         return await r.json();
       } finally { clearTimeout(timer); }
     },
-    clean(list) { return (Array.isArray(list) ? list : []).filter((x) => x && typeof x.s === "number").slice(0, 10).map((x) => ({ n: String(x.n || "???").slice(0, 3), s: x.s, w: x.w | 0 })); },
+    // only entries that fit the game: a broken row in the sheet must never reach the screen
+    clean(list) { return (Array.isArray(list) ? list : []).filter((x) => x && Number.isInteger(x.s) && x.s > 0 && x.s <= 5e6 && Number.isInteger(x.w) && x.w >= 1 && x.w <= 500).slice(0, 10).map((x) => ({ n: String(x.n || "???").slice(0, 3), s: x.s, w: x.w })); },
     async refresh() {
       if (!this.on || this.sending) return;
       this.loadedAt = G.t;

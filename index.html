@@ -46,6 +46,10 @@ body {
   padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: rgba(15, 14, 19, .75);
 }
 .back:hover, .back:focus-visible { background: var(--accent); color: #fff; outline: none; }
+body.public .back { display: none; }                                  /* public game: the way out only shows while paused */
+body.public.paused .back { display: inline-block; animation: backIn .25s ease-out; box-shadow: 0 0 18px rgba(246, 254, 84, .45); }
+@keyframes backIn { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { body.public.paused .back { animation: none; } }
 .hints { position: fixed; left: 0; right: 0; bottom: 8px; z-index: 2; margin: 0; text-align: center; font-size: 18px; color: var(--text-faint); letter-spacing: .5px; padding: 0 12px; }
 .hints kbd { font-family: var(--font-mono); color: var(--text); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; }
 .touchbar { position: fixed; right: 12px; top: 10px; z-index: 5; display: none; gap: 8px; }
@@ -88,17 +92,17 @@ body.touch .hints { display: none; }
 </head>
 <body>
 <div id="scanlines"></div>
-<a class="back" id="back" href="https://www.percona.com" title="percona.com (Esc)">◀ PERCONA.COM</a>
+<a class="back" id="back" href="https://www.percona.com" title="percona.com">◀ PERCONA.COM</a>
 <div class="touchbar"><button type="button" id="t-pause" aria-label="Pause">II</button><button type="button" id="t-mute" aria-label="Sound on or off">♪</button></div>
 
 <main id="stage" aria-label="PERCONA REBELS">
-  <canvas id="view" width="224" height="288" role="img" aria-label="PERCONA REBELS game screen. Press Enter to insert a coin, Enter again to start. Arrow keys or WASD move, Space fires, P pauses, M toggles sound, Escape goes to percona.com."></canvas>
+  <canvas id="view" width="224" height="288" role="img" aria-label="PERCONA REBELS game screen. Press Enter to insert a coin, Enter again to start. Arrow keys or WASD move, Space fires, P or Escape pauses, M toggles sound."></canvas>
   <canvas id="crt" width="224" height="288" hidden aria-hidden="true"></canvas>
 </main>
 
-<p class="hints"><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> move · <kbd>Space</kbd> fire · <kbd>Enter</kbd> coin + start · <kbd>P</kbd> pause · <kbd>M</kbd> sound · <kbd>C</kbd> CRT · <kbd>Esc</kbd> percona.com · gamepad and touch work too</p>
+<p class="hints"><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> move · <kbd>Space</kbd> fire · <kbd>Enter</kbd> coin + start · <kbd>P</kbd> / <kbd>Esc</kbd> pause · <kbd>M</kbd> sound · <kbd>C</kbd> CRT · gamepad and touch work too</p>
 
-<script>window.REBELS_STANDALONE=true;window.REBELS_ASSETS={};window.REBELS_BACK_NAME="percona.com";window.REBELS_LEADERBOARD="https://script.google.com/macros/s/AKfycbwtEBTAOFm1UpEh0H80ZuPRmxcjf3CAXliA7P28Bb83FgYcgBWYnwdFpfhSx85f4mxAZw/exec";</script>
+<script>window.REBELS_STANDALONE=true;window.REBELS_ASSETS={};window.REBELS_BACK_NAME="percona.com";window.REBELS_PUBLIC=true;window.REBELS_LEADERBOARD="https://script.google.com/macros/s/AKfycbwtEBTAOFm1UpEh0H80ZuPRmxcjf3CAXliA7P28Bb83FgYcgBWYnwdFpfhSx85f4mxAZw/exec";</script>
 <script src="rebels.js"></script>
 </body>
 </html>

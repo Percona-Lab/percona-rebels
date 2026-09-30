@@ -57,6 +57,8 @@
   const LOCAL_SPRITES = false;
   // Where Esc / the back link goes, as shown on screen. The public single-file build sets it to "PERCONA.COM".
   const BACK_NAME = String(window.REBELS_BACK_NAME || "ARCADE").toUpperCase();
+  // Public builds: Esc (and the gamepad's Back button) only pause and resume; the way out is the link shown while paused.
+  const PUBLIC = !!window.REBELS_PUBLIC;
 
   /* ================================================================== basics */
   const W = 224, H = 288, STEP = 1 / 60;          // Galaga's own resolution, portrait
@@ -1191,7 +1193,7 @@
     text("OPEN SOURCE STRIKES BACK", W / 2, 132, C.faint, { small: true, align: "center" });
     if (G.credits) { if (blink(2)) text("PRESS START", W / 2, 150, C.yellow, { align: "center" }); text("1 REBEL ONLY", W / 2, 164, C.white, { small: true, align: "center" }); }
     else if (blink(1.6)) text("INSERT COIN", W / 2, 150, C.yellow, { align: "center" });
-    const lines = ["ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
+    const lines = ["ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", PUBLIC ? "P OR ESC PAUSE   M SOUND   C CRT" : `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
     lines.forEach((l, i) => text(l, W / 2, 180 + i * 9, C.dim, { small: true, align: "center" }));
     if (Pilot.ready) text("CHOOSE YOUR PILOT FROM THE ARCADE ROSTER", W / 2, 214, C.teal, { small: true, align: "center" });
     if (t > 0.1) text(`BONUS SHIP EVERY ${RULES.extraLifeEvery.toLocaleString("en-US")} PTS`, W / 2, 228, C.lilac, { small: true, align: "center" });
@@ -1249,12 +1251,56 @@
     G.credits--;
     if (Pilot.ready) Pilot.open(); else beginGame();
   }
+  /* ================================================================== suspend and resume
+     Leaving the page mid-game (Esc to ARCADE, the percona.com link, a refresh, closing the tab, a phone dropping the page
+     in the background) saves the run in localStorage. The next visit within a day brings it back, paused. */
+  const Suspend = {
+    key: "suspended", maxAge: 24 * 3600 * 1000,
+    save() {
+      const w = G.world;
+      if (G.mode !== "game" || !w || w.demo || w.phase === "over") return;
+      try {
+        // enemy types, bosses and power-ups hold canvases: store them by id
+        const json = JSON.stringify(w, (k, v) => {
+          if (!v || typeof v !== "object") return v;
+          if (k === "parts") return [];
+          if (BOSSES.includes(v)) return { $b: v.id };
+          if (POWERUPS.includes(v)) return { $p: v.id };
+          if (v.frames && v.id) return { $t: v.id };
+          return v;
+        });
+        store.set(this.key, { at: Date.now(), world: json, ticket: World.ticket || null });
+      } catch { /* storage full or blocked: nothing to do */ }
+    },
+    restore() {
+      const saved = store.get(this.key, null);
+      if (!saved || !saved.world || Date.now() - saved.at > this.maxAge) { this.clear(); return false; }
+      const types = new Map(); ENEMIES.forEach((t) => { types.set(t.id, t); if (t.child) types.set(t.child.id, t.child); });
+      let missing = false;
+      const w = JSON.parse(saved.world, (k, v) => {
+        if (!v || typeof v !== "object") return v;
+        const found = v.$t ? types.get(v.$t) : v.$b ? BOSSES.find((b) => b.id === v.$b) : v.$p ? POWERUPS.find((p) => p.id === v.$p) : v;
+        if (!found) missing = true;
+        return found;
+      });
+      if (missing || !w || !w.p) { this.clear(); return false; }            // the line-up changed since: start fresh
+      w.parts = []; w.pops = []; w.banner = null; w.flash = 0; w.shake = 0;          // leave the moment-to-moment effects behind
+      G.world = w; G.mode = "game"; G.over = null; World.ticket = saved.ticket || null;
+      setPause(true); G.resumed = true;
+      return true;
+    },
+    clear() { store.set(this.key, null); },
+  };
+  addEventListener("pagehide", () => Suspend.save());
+  document.addEventListener("visibilitychange", () => { if (document.hidden) Suspend.save(); });
+
   function beginGame() {
+    Suspend.clear();
     G.mode = "game"; G.paused = false; G.pauseEsc = false; G.demo = null; G.over = null;
     G.world = newWorld(false); AU.start(); startWave(G.world); World.startRun();
   }
   function toGameOver() {
-    const w = G.world; Music.stop(); AU.over();
+    const w = G.world; Music.stop(); AU.over(); Suspend.clear();
     G.mode = "gameover"; G.over = { t: 0, score: w.score, wave: w.wave, kills: w.kills, secs: Math.round(w.t), acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
     World.rank = null; World.note = "";
   }
@@ -1308,7 +1354,13 @@
   }
   function renderPause() {
     g.fillStyle = "rgba(7,6,11,0.7)"; g.fillRect(0, 0, W, H);
+    if (G.resumed) { text("WELCOME BACK!", W / 2, 96, C.teal, { align: "center" }); text("YOUR GAME WAS SAVED RIGHT HERE", W / 2, 108, C.dim, { small: true, align: "center" }); }
     text("PAUSED", W / 2, 120, C.yellow, { align: "center", scale: 2, shadow: C.purple });
+    if (PUBLIC) {
+      text("P OR ESC TO RESUME", W / 2, 148, C.white, { small: true, align: "center" });
+      text(`${BACK_NAME} IS THE LINK TOP LEFT`, W / 2, 158, C.dim, { small: true, align: "center" });
+      return;
+    }
     text(G.pauseEsc ? `ESC AGAIN: GO TO ${BACK_NAME}` : "P OR START TO RESUME", W / 2, 148, C.white, { small: true, align: "center" });
     text(G.pauseEsc ? "P OR START TO KEEP PLAYING" : `ESC: GO TO ${BACK_NAME}`, W / 2, 158, C.dim, { small: true, align: "center" });
   }
@@ -1329,7 +1381,7 @@
       else if (e.key === "ArrowLeft") Ini.move(-1); else if (e.key === "ArrowRight") Ini.move(1);
       else if (e.key === "Enter") Ini.submit(); else if (e.key === " ") Ini.ok();
       else if (e.key === "Backspace") Ini.back();
-      else if (e.key === "Escape") { Ini.submit(); leave(); }
+      else if (e.key === "Escape") { Ini.submit(); if (!PUBLIC) leave(); }
       else if (e.key.length === 1 && INI_CHARS.includes(e.key.toUpperCase())) Ini.type(e.key.toUpperCase());
       return;
     }
@@ -1387,9 +1439,9 @@
   function toggleMute() { AU.setMuted(!AU.muted); toast(AU.muted ? "SOUND OFF" : "SOUND ON"); updateSoundIcon(); }
   function updateSoundIcon() { const b = $("#t-mute"); if (b) b.textContent = AU.muted ? "♪̸" : "♪"; }
   function toggleCrt() { G.crt = !G.crt; store.set("crt", G.crt); applyCrt(); toast(G.crt ? "CRT FILTER ON" : "CRT FILTER OFF"); }
-  function setPause(on) { G.paused = on; G.pauseEsc = false; if (on) Music.stop(); else if (G.world && !G.world.demo) Music.start(G.world.isBoss); AU.blip(on ? 400 : 800); }
+  function setPause(on) { G.paused = on; G.pauseEsc = false; document.body.classList.toggle("paused", on); if (!on) G.resumed = false; if (on) Music.stop(); else if (G.world && !G.world.demo) Music.start(G.world.isBoss); AU.blip(on ? 400 : 800); }
   function leave() {
-    Music.stop();
+    Music.stop(); Suspend.save();
     const target = $("#back")?.href || "index.html", same = (u) => { try { const x = new URL(u, location.href); return x.origin + x.pathname.replace(/\.html$|\/$/, ""); } catch { return u; } };
     // came here from ARCADE: step back so its screen, search and filters are as you left them
     if (document.referrer && same(document.referrer) === same(target) && history.length > 1) history.back(); else location.href = target;
@@ -1400,16 +1452,17 @@
     if (pressed("crt")) toggleCrt();
     const go = pressed("start") || pressed("fire");
     switch (G.mode) {
-      case "attract": if (pressed("coin")) insertCoin(); else if (go) pressStart(); if (pressed("back")) leave(); break;
+      case "attract": if (pressed("coin")) insertCoin(); else if (go) pressStart(); if (pressed("back") && !PUBLIC) leave(); break;
       case "game":
-        if (pressed("back")) { if (G.paused && G.pauseEsc) leave(); else { if (!G.paused) setPause(true); G.pauseEsc = true; } }
+        if (pressed("back") && PUBLIC) setPause(!G.paused);
+        else if (pressed("back")) { if (G.paused && G.pauseEsc) leave(); else { if (!G.paused) setPause(true); G.pauseEsc = true; } }
         else if (pressed("pause") || pressed("start")) setPause(!G.paused);
         break;
-      case "gameover": if (go && G.over.t > 1.5) finishGameOver(); if (pressed("back")) leave(); break;
+      case "gameover": if (go && G.over.t > 1.5) finishGameOver(); if (pressed("back") && !PUBLIC) leave(); break;
       case "initials":
         if (pressed("up")) Ini.cycle(1); if (pressed("down")) Ini.cycle(-1); if (pressed("left")) Ini.move(-1); if (pressed("right")) Ini.move(1);
         if (pressed("fire")) Ini.ok(); if (pressed("start")) Ini.submit(); break;
-      case "scores": if (go) { G.mode = "attract"; setAttract(0); } if (pressed("back")) leave(); break;
+      case "scores": if (go) { G.mode = "attract"; setAttract(0); } if (pressed("back") && !PUBLIC) leave(); break;
       case "pilot":
         if (pressed("left")) Pilot.move(-1); if (pressed("right")) Pilot.move(1); if (pressed("up")) Pilot.move(-Pilot.cols()); if (pressed("down")) Pilot.move(Pilot.cols());
         if (pressed("fire") || pressed("start")) Pilot.launch(); if (pressed("cancel") || pressed("back")) Pilot.cancel(); break;
@@ -1539,8 +1592,8 @@
     buildShip(C.white);
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple);
     if (G.pilot) buildShip(G.pilot.color);
-    loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh();
-    resize(); addEventListener("resize", resize); applyCrt(); setAttract(0);
+    loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
+    resize(); addEventListener("resize", resize); applyCrt(); setAttract(0); Suspend.restore();
     requestAnimationFrame(frame);
     // hooks for tests: only in builds without the shared world table, so they can't be used to fake a world score
     const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, version: 2 };

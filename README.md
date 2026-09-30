@@ -25,10 +25,13 @@ anywhere.
 | Insert coin, then start | `Enter` or `Space` (twice) · `5` coin, `1` start | Start | tap (twice) |
 | Move | arrow keys or `WASD` | left stick or d-pad | drag anywhere |
 | Fire | `Space` (hold for auto) | A / X / RB / RT | automatic |
-| Pause | `P` | Start | `II` button |
+| Pause / resume | `P` or `Esc` | Start or Back | `II` button |
 | Sound on/off | `M` (sound stays off until your first key press) | | `♪` button |
 | CRT filter on/off | `C` | | |
-| Leave | `Esc` twice (the first pauses) | Back / Select | `◀ PERCONA.COM` |
+| Go to percona.com | the `◀ PERCONA.COM` link, shown while paused | | same |
+
+Leaving mid-game doesn't lose your run: following the link, refreshing or closing the tab saves it in your browser,
+and your next visit (within a day) picks it up again, paused.
 
 ## Know your enemy
 

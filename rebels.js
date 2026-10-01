@@ -1017,6 +1017,34 @@
   }
 
   /* ================================================================== drawing the world */
+  // The tab icon: the ship inside its XtraBackup shield, on a dark rounded tile so it reads in light and dark tabs.
+  // Drawn by the game itself so it always matches the ship; the PNGs in assets/rebels/ are saved from this.
+  // maskable: full-bleed square with the art inside the 80% safe circle, for installed-app icons that the OS crops
+  function makeIcon(size = 32, maskable = false) {
+    const small = size <= 16, N = small ? 16 : 32, c = makeCanvas(N, N), x = ctx2d(c);
+    const r = maskable ? 0 : small ? 3 : 6;
+    x.fillStyle = "#14112a";
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const dx = Math.max(0, r - i - 0.5, i + 0.5 - (N - r)), dy = Math.max(0, r - j - 0.5, j + 0.5 - (N - r));
+      if (dx * dx + dy * dy <= r * r) x.fillRect(i, j, 1, 1);
+    }
+    const ship = buildMark(C.white, small ? 9 : 17), cx = N / 2, cy = N / 2;
+    const ring = small ? 6.6 : 13.2;
+    for (let a = 0; a < Math.PI * 2; a += 0.02) { x.fillStyle = Math.sin(a * 3) > 0.6 ? "#8ff5e0" : C.teal; x.fillRect(Math.floor(cx + Math.cos(a) * ring), Math.floor(cy + Math.sin(a) * ring), 1, 1); }
+    x.drawImage(ship, Math.round(cx - ship.width / 2), Math.round(cy - ship.height / 2) - 1);
+    x.fillStyle = C.yellow; x.fillRect(cx - 1, Math.round(cy - ship.height / 2) - 1 + ship.height, 2, small ? 1 : 2);
+    if (size === N && !maskable) return c;
+    const out = makeCanvas(size, size), o = ctx2d(out), k = Math.max(1, Math.floor((maskable ? size * 0.72 : size) / N)), off = Math.floor((size - N * k) / 2);
+    o.fillStyle = "#14112a"; if (off || maskable) o.fillRect(0, 0, size, size);
+    o.imageSmoothingEnabled = false; o.drawImage(c, off, off, N * k, N * k);
+    return out;
+  }
+  function setFavicon() {
+    try {
+      const link = document.querySelector('link[rel="icon"][sizes="32x32"]') || document.querySelector('link[rel="icon"]');
+      if (link) link.href = makeIcon(32).toDataURL("image/png");
+    } catch { /* keep the static icon */ }
+  }
   function drawShip(x, y, w) {
     if (!SHIP.img) return;
     const img = SHIP.img, ix = Math.round(x - img.width / 2), iy = Math.round(y - img.height / 2);
@@ -1591,9 +1619,24 @@
   function boot(fontOk) {
     buildSmallFont(); buildBigFont(fontOk); prepareTypes(); loadScores(); seedStars();
     buildShip(C.white);
-    SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple);
+    SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple); setFavicon();
     if (G.pilot) buildShip(G.pilot.color);
     loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
+    // the app manifest (installing to the home screen or Dock). Linked from here, not the HTML, because browsers refuse
+    // manifest files on file:// pages. Single-file builds carry it inline with the page's own address as start URL.
+    if (!window.REBELS_MANIFEST && /^https?:$/.test(location.protocol)) {
+      document.head.appendChild(Object.assign(document.createElement("link"), { rel: "manifest", href: window.REBELS_MANIFEST_URL || "rebels.webmanifest" }));
+    }
+    if (window.REBELS_MANIFEST) {
+      try {
+        const here = location.href.split("#")[0].split("?")[0];
+        const m = { ...window.REBELS_MANIFEST, id: here, start_url: here, scope: here.replace(/[^/]*$/, "") };
+        const link = document.querySelector('link[rel="manifest"]') || document.head.appendChild(Object.assign(document.createElement("link"), { rel: "manifest" }));
+        link.href = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: "application/manifest+json" }));
+      } catch { /* not installable then; the page still works */ }
+    }
+    // offline play for the installed public game (the page sets REBELS_SW; never on file:// or the internal builds)
+    if (window.REBELS_SW && "serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register(window.REBELS_SW).catch(() => {});
     resize(); addEventListener("resize", resize); applyCrt(); setAttract(0); Suspend.restore();
     requestAnimationFrame(frame);
     // hooks for tests: only in builds without the shared world table, so they can't be used to fake a world score
@@ -1601,6 +1644,7 @@
     window.PERCONA_REBELS = World.on ? info : {
       get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES, World,
       give(id) { const P = POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
+      icon(size, maskable) { return makeIcon(size, maskable).toDataURL("image/png"); },
       warpTo(n) { if (G.world) { G.world.wave = Math.max(0, n - 1); startWave(G.world); } },
     };
   }

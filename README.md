@@ -6,6 +6,10 @@ strikes back.
 
 **▶ Play it: https://percona-lab.github.io/percona-rebels/**
 
+**Install it** like an app: **Add to Home Screen** on iPhone and Android, **File → Add to Dock** in Safari on a Mac, or
+the install icon in Chrome's or Edge's address bar. Once it's been opened, it plays offline too (world high scores need
+a connection; offline runs go on your own table).
+
 <p>
 <img src="docs/title.png" width="200" alt="Title screen: PERCONA REBELS, freedom fighters for open source">
 <img src="docs/enemies.png" width="200" alt="Know your enemy: the practices you fight and what each one does">

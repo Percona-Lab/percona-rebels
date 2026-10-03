@@ -543,7 +543,12 @@
     if (!Array.isArray(s) || !s.length) s = DEFAULT_SCORES.map(([n, sc, w]) => ({ n, s: sc, w }));
     G.scores = s.filter((x) => x && typeof x.s === "number").sort((a, b) => b.s - a.s).slice(0, 10);
   }
-  const hiScore = () => Math.max(G.scores[0]?.s || 0, World.top?.[0]?.s || 0, G.world && !G.world.demo ? G.world.score : 0);
+  // the record and who holds it: the world table, this browser's table, or you, mid-game, once you pass it
+  function hiEntry() {
+    const best = [World.top?.[0], G.scores[0]].filter(Boolean).reduce((a, b) => (b.s > a.s ? b : a), { s: 0, n: "" });
+    const playing = G.world && !G.world.demo && (G.mode === "game" || G.mode === "gameover") ? G.world.score : 0;
+    return playing > best.s ? { s: playing, n: "YOU" } : { s: best.s, n: String(best.n || "").slice(0, 3) };
+  }
 
   /* ================================================================== world high scores (optional, public build)
      A Google Apps Script web app in front of a Google Sheet keeps one table for every player (leaderboard/Code.gs).
@@ -1174,7 +1179,9 @@
     if (!(G.mode === "game" && w && w.phase === "play") || blink(2)) text("1UP", 16, 2, C.red);
     text(pad(score), 8, 11, C.white);
     text("HIGH SCORE", W / 2, 2, C.red, { align: "center" });
-    text(pad(hiScore()), W / 2, 11, C.white, { align: "center" });
+    const hi = hiEntry(), hs = pad(hi.s);
+    text(hs, W / 2, 11, C.white, { align: "center" });
+    if (hi.n.trim()) text(hi.n, Math.round(W / 2 + textWidth(hs) / 2) + 6, 11, hi.n === "YOU" ? C.yellow : C.lilac);
     if (w && w.mult > 1) text(`X${w.mult}`, 60, 11, C.yellow);
     if (G.pilot) {
       const x = W - 20, y = 2;

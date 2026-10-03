@@ -1179,15 +1179,18 @@
     if (!(G.mode === "game" && w && w.phase === "play") || blink(2)) text("1UP", 16, 2, C.red);
     text(pad(score), 8, 11, C.white);
     text("HIGH SCORE", W / 2, 2, C.red, { align: "center" });
-    const hi = hiEntry(), hs = pad(hi.s);
-    text(hs, W / 2, 11, C.white, { align: "center" });
-    if (hi.n.trim()) text(hi.n, Math.round(W / 2 + textWidth(hs) / 2) + 6, 11, hi.n === "YOU" ? C.yellow : C.lilac);
+    const hi = hiEntry();
+    text(pad(hi.s), W / 2, 11, C.white, { align: "center" });
     if (w && w.mult > 1) text(`X${w.mult}`, 60, 11, C.yellow);
+    // the right column balances 1UP (where an arcade puts 2UP): your pilot's photo if you picked one, else who holds the record
     if (G.pilot) {
       const x = W - 20, y = 2;
       g.fillStyle = G.pilot.color; g.fillRect(x - 1, y - 1, 18, 18); g.fillStyle = C.ink; g.fillRect(x, y, 16, 16);
       if (G.pilot.img) g.drawImage(G.pilot.img, x, y, 16, 16); else text(G.pilot.initials, x + 8, y + 5, C.white, { small: true, align: "center" });
       text(G.pilot.first, W - 3, 20, C.lilac, { small: true, align: "right" });
+    } else if (hi.n.trim()) {
+      text("CHAMP", W - 32, 2, C.red, { align: "center" });
+      text(hi.n, W - 32, 11, hi.n === "YOU" ? C.yellow : C.white, { align: "center" });
     }
   }
   function renderHudBottom(w) {

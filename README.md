@@ -75,7 +75,7 @@ shake, flashes and warp streaks.
 Everyone playing on GitHub Pages shares one **WORLD TOP 10**. It lives in a Google Sheet behind a small Google Apps
 Script web app, [`leaderboard/Code.gs`](leaderboard/Code.gs). Every game gets a one-time ticket when it starts and
 the script times the run itself, so a score can't claim more play time than really passed. The numbers have to fit
-the game's rules, and very big scores wait for a human to check them before they show up.
+the game's rules, and anything that still looks off gets removed by a human.
 
 Yes, you can read the code and, with enough patience, fool it. It's a game about open source: have fun with the code,
 but faked scores get removed.

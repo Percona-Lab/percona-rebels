@@ -12,7 +12,8 @@
  *   1. Every submission needs a one-time ticket from action=start. The script times the run itself, so a score can't
  *      claim more play time than really passed since the ticket was issued, and each ticket is good for one score.
  *   2. The numbers must fit the game's rules: points per kill, kills per wave and per second, seconds per wave.
- *   3. Scores above REVIEW_ABOVE are stored with the "approved" box unticked and stay hidden until someone ticks it.
+ *   3. Every score goes live at once, with its "approved" box ticked. Untick a row to hide it, or delete it. To hold
+ *      big scores for review instead, set REVIEW_ABOVE to a number: scores above it arrive unticked and stay hidden.
  *      Untick any row to hide it, or delete it.
  * None of this stops a patient cheater who plays along in real time with a doctored client; that's what 3 is for.
  *
@@ -24,7 +25,7 @@
 const SHEET_NAME = "scores";
 const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved"];
 const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General"];
-const REVIEW_ABOVE = 100000;     // scores above this wait for a tick in the "approved" column
+const REVIEW_ABOVE = Infinity;   // no review: every score shows at once (set e.g. 100000 to hold bigger ones back)
 const KEEP_ROWS = 2000;          // the sheet is trimmed to the best KEEP_ROWS scores
 const CACHE_SECONDS = 20;        // how long the top 10 is cached between reads
 const TICKET_HOURS = 6;          // a ticket expires after this long (the cache maximum)

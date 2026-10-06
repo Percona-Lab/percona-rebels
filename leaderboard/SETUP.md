@@ -38,15 +38,16 @@ The attract mode then shows **WORLD TOP 10**, and after a game you see your worl
 
 ## Running it
 
-* **Review:** scores above `REVIEW_ABOVE` (100,000 to start) are saved with the **approved** box unticked and stay
-  hidden until you tick it. Untick any row to hide it, or delete the row. Changes show in the game within 20 seconds.
+* **Moderation:** every score goes live at once, with its **approved** box ticked. If one looks off, untick it to hide
+  it, or delete the row. Changes show in the game within 20 seconds. To hold big scores back for review instead, set
+  `REVIEW_ABOVE` in `Code.gs` to a number (for example 100000): scores above it then arrive unticked.
 * **What's stored:** time, initials, score, wave, seconds played, kills, game version, approved. Apps Script never sees
   players' IP addresses, and the game sends no names or ids.
 * **Anti-cheat:** every game gets a one-time ticket when it starts, and the script times the run itself: a score can't
   claim more play time than really passed, and each ticket gives one score. The numbers must also fit the game (points
   per kill, kills per wave and per second, seconds per wave, multiples of 10), initials are filtered, and starts and
   scores are rate-limited. Tune the constants at the top of `Code.gs`. A patient cheater who plays along in real time
-  with a doctored game can still get a plausible score in; that's what the review threshold is for.
+  with a doctored game can still get a plausible score in; untick or delete it when you spot it.
 * **Changing the script:** after editing, use **Deploy → Manage deployments → edit (pencil) → Version: New version →
   Deploy**. The URL stays the same.
 * **Turning it off:** empty the URL in `leaderboard/config.json` and export again, or archive the deployment. The game

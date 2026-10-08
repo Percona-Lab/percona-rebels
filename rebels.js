@@ -599,6 +599,21 @@
   };
   function toast(msg) { G.toast = { msg, t: 0 }; }
 
+  /* ================================================================== cheat code: ADVANCED SUPPORT
+     The Konami code (up up down down left right left right B A, keyboard or gamepad) toggles Advanced Support:
+     a calmer starfield and high-visibility enemy bullets. It only changes what you see, not how hard the game is,
+     so scores still count. Remembered in this browser. */
+  const Cheat = {
+    code: ["U", "U", "D", "D", "L", "R", "L", "R", "B", "A"], buf: [],
+    feed(token) {
+      this.buf.push(token); if (this.buf.length > this.code.length) this.buf.shift();
+      if (this.buf.join() !== this.code.join()) return;
+      this.buf = []; G.support = !G.support; store.set("support", G.support);
+      toast(G.support ? "ADVANCED SUPPORT ACTIVATED. RESPONSE TIME: 30 MIN" : "ADVANCED SUPPORT CANCELLED. WE'LL MISS YOU");
+      AU[G.support ? "oneUp" : "over"]();
+    },
+  };
+
   /* ================================================================== stars */
   function seedStars() {
     const cols = [C.white, C.white, C.lilac, "#6f6b7d", C.yellow, "#4aa3ff"];
@@ -612,7 +627,8 @@
   function drawStars() {
     for (const s of G.stars) {
       if (s.l === 0 && Math.sin(G.t * 3 + s.tw) < -0.6) continue;
-      g.fillStyle = s.c; g.globalAlpha = [0.45, 0.7, 1][s.l];
+      if (G.support && s.l < 2) continue;                       // Advanced Support: only the nearest, sparse layer
+      g.fillStyle = s.c; g.globalAlpha = G.support ? 0.3 : [0.45, 0.7, 1][s.l];
       const len = G.warp > 1.5 && s.l > 0 ? Math.round(G.warp * s.l) : 1;
       g.fillRect(Math.round(s.x), Math.round(s.y), 1, len);
     }
@@ -1111,6 +1127,7 @@
     g.fillStyle = C.white; for (const b of w.pbul) g.fillRect(Math.round(b.x), Math.round(b.y), 1, 1);
     for (const b of w.ebul) {
       const x = Math.round(b.x), y = Math.round(b.y);
+      if (G.support) { g.fillStyle = C.ink; g.fillRect(x - 3, y - 4, 7, 8); g.fillStyle = C.yellow; g.fillRect(x - 2, y - 3, 5, 6); g.fillStyle = C.ink; g.fillRect(x - 1, y - 2, 3, 4); }
       if (b.kind === "o") { g.fillStyle = C.orange; g.fillRect(x - 1, y - 1, 3, 3); g.fillStyle = C.yellow; g.fillRect(x, y, 1, 1); }
       else if (b.kind === "j" || b.kind === "p") { g.fillStyle = "#f4ecd6"; g.fillRect(x - 1, y - 2, 3, 4); g.fillStyle = b.kind === "p" ? C.red : C.ink; g.fillRect(x - 1, y - 1, 3, 1); g.fillRect(x - 1, y + 1, 2, 1); }
       else { g.fillStyle = blink(12) ? C.red : C.white; g.fillRect(x, y - 2, 1, 4); g.fillStyle = C.red; g.fillRect(x - 1, y, 3, 1); }
@@ -1179,6 +1196,7 @@
     if (!(G.mode === "game" && w && w.phase === "play") || blink(2)) text("1UP", 16, 2, C.red);
     text(pad(score), 8, 11, C.white);
     text("HIGH SCORE", W / 2, 2, C.red, { align: "center" });
+    if (G.support) text("ADVANCED SUPPORT", W / 2, 20, C.teal, { small: true, align: "center" });
     const hi = hiEntry();
     text(pad(hi.s), W / 2, 11, C.white, { align: "center" });
     if (w && w.mult > 1) text(`X${w.mult}`, 60, 11, C.yellow);
@@ -1410,8 +1428,10 @@
     " ": "fire", Enter: "start", p: "pause", P: "pause", m: "mute", M: "mute", c: "crt", C: "crt", Escape: "back", 5: "coin", 1: "start" };
   const held = (a) => IN.keys.has(a) || IN.pad.has(a);
   const pressed = (a) => IN.pressed.has(a);
+  const CHEAT_KEYS = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", b: "B", B: "B", a: "A", A: "A" };
   addEventListener("keydown", (e) => {
     AU.unlock();
+    if (G.mode !== "pilot" && G.mode !== "initials" && !e.repeat && CHEAT_KEYS[e.key]) Cheat.feed(CHEAT_KEYS[e.key]);
     if (G.mode === "pilot") { Pilot.onKey(e); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (G.mode === "initials") {
@@ -1446,7 +1466,11 @@
       if (Math.abs(x) > 0.25) IN.ax = clamp(x, -1, 1); if (Math.abs(y) > 0.25) IN.ay = clamp(y, -1, 1);
       if (x < -0.5) IN.pad.add("left"); if (x > 0.5) IN.pad.add("right"); if (y < -0.5) IN.pad.add("up"); if (y > 0.5) IN.pad.add("down");
     }
-    for (const a of IN.pad) if (!IN.padPrev.has(a)) { IN.pressed.add(a); AU.unlock(); }
+    for (const a of IN.pad) if (!IN.padPrev.has(a)) {
+      IN.pressed.add(a); AU.unlock();
+      const t = { up: "U", down: "D", left: "L", right: "R", cancel: "B", fire: "A" }[a];
+      if (t && G.mode !== "pilot" && G.mode !== "initials") Cheat.feed(t);
+    }
   }
   addEventListener("gamepadconnected", () => toast("GAMEPAD READY"));
 
@@ -1631,6 +1655,7 @@
     buildShip(C.white);
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple); setFavicon();
     if (G.pilot) buildShip(G.pilot.color);
+    G.support = !!store.get("support", false);
     loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
     // the app manifest (installing to the home screen or Dock). Linked from here, not the HTML, because browsers refuse
     // manifest files on file:// pages. Single-file builds carry it inline with the page's own address as start URL.

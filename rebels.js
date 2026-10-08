@@ -599,20 +599,36 @@
   };
   function toast(msg) { G.toast = { msg, t: 0 }; }
 
-  /* ================================================================== cheat code: ADVANCED SUPPORT
-     The Konami code (up up down down left right left right B A, keyboard or gamepad) toggles Advanced Support:
-     a calmer starfield and high-visibility enemy bullets. It only changes what you see, not how hard the game is,
-     so scores still count. Remembered in this browser. */
+  /* ================================================================== secret codes
+     Easter eggs. The codes are kept as fingerprints, not spelled out: no spoilers in the source.
+     Support tiers that only change what you see keep scores counting; anything that makes the game easier marks the
+     run as assisted, and assisted runs stay on this browser's table, never the world table. */
+  const fingerprint = (s) => { let x = 2166136261; for (const c of s) { x ^= c.charCodeAt(0); x = Math.imul(x, 16777619) >>> 0; } return x.toString(36); };
   const Cheat = {
-    code: ["U", "U", "D", "D", "L", "R", "L", "R", "B", "A"], buf: [],
+    tier: "akzrea", full: "1ez5kfm", buf: "", armedAt: -99, before: "",
+    // after the first code, the next keys and buttons belong to the code (so they don't steer, pause or toggle anything)
+    get armed() { return G.t - this.armedAt < 6; },
     feed(token) {
-      this.buf.push(token); if (this.buf.length > this.code.length) this.buf.shift();
-      if (this.buf.join() !== this.code.join()) return;
-      this.buf = []; G.support = !G.support; store.set("support", G.support);
-      toast(G.support ? "ADVANCED SUPPORT ACTIVATED. RESPONSE TIME: 30 MIN" : "ADVANCED SUPPORT CANCELLED. WE'LL MISS YOU");
-      AU[G.support ? "oneUp" : "over"]();
+      this.buf = (this.buf + token).slice(-30);
+      if (fingerprint(this.buf.slice(-21)) === this.full) {             // the long code: undo the tier toggle it passed through
+        this.buf = ""; this.armedAt = -99; G.support = this.before; store.set("support", G.support);
+        G.ops = !G.ops; store.set("ops", G.ops);
+        toast(G.ops ? "EXPERTOPS: WE RUN IT. YOU CAN'T LOSE" : "EXPERTOPS CANCELLED. BACK TO DIY"); AU[G.ops ? "power" : "over"]();
+        return;
+      }
+      if (fingerprint(this.buf.slice(-10)) !== this.tier) return;
+      this.before = G.support; this.armedAt = G.t;
+      const twice = this.buf.length >= 20 && fingerprint(this.buf.slice(-20, -10)) === this.tier;
+      if (twice && G.support === "advanced") setSupport("premium");
+      else setSupport(G.support ? "" : "advanced");
     },
   };
+  function setSupport(level) {
+    G.support = level; store.set("support", level);
+    toast(level === "premium" ? "PREMIUM SUPPORT: SHIELD BACK EVERY 15 SEC" : level ? "ADVANCED SUPPORT ACTIVATED. RESPONSE TIME: 30 MIN" : "SUPPORT CANCELLED. WE'LL MISS YOU");
+    AU[level ? "oneUp" : "over"]();
+  }
+  const assistedNow = () => G.support === "premium" || G.ops;
 
   /* ================================================================== stars */
   function seedStars() {
@@ -888,6 +904,7 @@
   }
   function hurtPlayer(w) {
     const p = w.p; if (!p.alive || p.inv > 0) return false;
+    if (G.ops && !w.demo) { p.inv = 0.5; explode(w, p.x, p.y, [C.lilac, C.white], 8, 50); sfx(w, "clink"); return true; }   // ExpertOps: nothing gets through
     if (w.fx.shield) { w.fx.shield = false; p.inv = 1.2; shake(w, 3); explode(w, p.x, p.y, [C.teal, C.white], 12, 60); sfx(w, "shield"); return true; }
     p.alive = false; p.deadT = 0; w.lives--; w.deathsThisWave++;
     explode(w, p.x, p.y, [C.white, C.yellow, C.purple, C.lilac, C.red], 46, 120); shake(w, 8); w.flash = 0.6; sfx(w, "death");
@@ -954,6 +971,10 @@
     if (w.banner && (w.banner.t += dt) > w.banner.dur) w.banner = null;
     for (const k of ["pmm", "pxc", "op"]) if (w.fx[k] > 0) { w.fx[k] = Math.max(0, w.fx[k] - dt); if (k === "op" && !w.fx.op) w.wing = []; }
     if (w.streakT > 0 && (w.streakT -= dt) <= 0) { w.streak = 0; w.mult = 1; }
+    if (!w.demo && assistedNow()) w.assisted = true;
+    if (!w.demo && G.support === "premium" && w.p.alive && !w.fx.shield && (w.premiumT = (w.premiumT || 0) + dt) >= 15) {
+      w.premiumT = 0; w.fx.shield = true; popup(w, w.p.x, w.p.y - 14, "PREMIUM SUPPORT"); sfx(w, "shield");
+    }
     const d = diff(w);
 
     if (w.phase === "intro") {
@@ -1134,7 +1155,8 @@
     }
     for (const m of w.wing) g.drawImage(DRONE.img, Math.round(m.x - 3), Math.round(m.y - 2));
     const p = w.p;
-    if (p.alive && !(p.inv > 0 && Math.floor(G.t * 12) % 2)) drawShip(p.x, p.y, w);
+    if (p.alive && !(p.inv > 0 && !G.ops && Math.floor(G.t * 12) % 2)) drawShip(p.x, p.y, w);
+    if (p.alive && G.ops && !w.demo) { g.fillStyle = blink(6) ? C.lilac : C.purple; for (let a = 0; a < Math.PI * 2; a += 0.35) g.fillRect(Math.round(p.x + Math.cos(a - G.t) * 13), Math.round(p.y + 1 + Math.sin(a - G.t) * 12), 1, 1); }
     if (p.alive && p.jam > 0 && blink(6)) text("JAMMED", p.x, p.y + 10, C.orange, { small: true, align: "center" });
     for (const q of w.parts) {
       g.globalAlpha = clamp(q.life / q.max, 0, 1); g.fillStyle = q.c;
@@ -1196,7 +1218,8 @@
     if (!(G.mode === "game" && w && w.phase === "play") || blink(2)) text("1UP", 16, 2, C.red);
     text(pad(score), 8, 11, C.white);
     text("HIGH SCORE", W / 2, 2, C.red, { align: "center" });
-    if (G.support) text("ADVANCED SUPPORT", W / 2, 20, C.teal, { small: true, align: "center" });
+    const tier = [G.support === "premium" ? "PREMIUM SUPPORT" : G.support ? "ADVANCED SUPPORT" : "", G.ops ? "EXPERTOPS" : ""].filter(Boolean).join(" + ");
+    if (tier) text(tier, W / 2, 20, G.ops || G.support === "premium" ? C.yellow : C.teal, { small: true, align: "center" });
     const hi = hiEntry();
     text(pad(hi.s), W / 2, 11, C.white, { align: "center" });
     if (w && w.mult > 1) text(`X${w.mult}`, 60, 11, C.yellow);
@@ -1358,10 +1381,10 @@
   }
   function toGameOver() {
     const w = G.world; Music.stop(); AU.over(); Suspend.clear();
-    G.mode = "gameover"; G.over = { t: 0, score: w.score, wave: w.wave, kills: w.kills, secs: Math.round(w.t), acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
+    G.mode = "gameover"; G.over = { t: 0, assisted: !!w.assisted, score: w.score, wave: w.wave, kills: w.kills, secs: Math.round(w.t), acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
     World.rank = null; World.note = "";
   }
-  const qualifies = (s) => (s > 0 && (G.scores.length < 10 || s > G.scores[G.scores.length - 1].s)) || World.qualifies(s);
+  const qualifies = (s) => (s > 0 && (G.scores.length < 10 || s > G.scores[G.scores.length - 1].s)) || (!G.over?.assisted && World.qualifies(s));
   function finishGameOver() {
     if (qualifies(G.over.score)) { const last = String(store.get("initials", "AAA")).toUpperCase(); G.mode = "initials"; G.ini = { letters: (last + "AAA").slice(0, 3).split(""), pos: 0, t: 0 }; }
     else { G.mode = "scores"; G.scoresT = 0; G.lastEntry = -1; }
@@ -1378,7 +1401,8 @@
       const entry = { n, s: G.over.score, w: G.over.wave, d: new Date().toISOString().slice(0, 10) };
       G.scores.push(entry); G.scores.sort((a, b) => b.s - a.s); G.scores = G.scores.slice(0, 10); store.set("scores", G.scores);
       G.lastEntry = G.scores.indexOf(entry); G.mode = "scores"; G.scoresT = 0; AU.oneUp();
-      World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 2 });
+      if (G.over.assisted) World.note = World.on ? "ASSISTED RUN: SAVED HERE, NOT WORLDWIDE" : "";
+      else World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 2 });
     },
   };
   function renderGameOver() {
@@ -1428,10 +1452,13 @@
     " ": "fire", Enter: "start", p: "pause", P: "pause", m: "mute", M: "mute", c: "crt", C: "crt", Escape: "back", 5: "coin", 1: "start" };
   const held = (a) => IN.keys.has(a) || IN.pad.has(a);
   const pressed = (a) => IN.pressed.has(a);
-  const CHEAT_KEYS = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", b: "B", B: "B", a: "A", A: "A" };
+  const CHEAT_KEYS = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", b: "B", B: "B", a: "A", A: "A" };   // inputs for the secret codes
   addEventListener("keydown", (e) => {
     AU.unlock();
-    if (G.mode !== "pilot" && G.mode !== "initials" && !e.repeat && CHEAT_KEYS[e.key]) Cheat.feed(CHEAT_KEYS[e.key]);
+    if (G.mode !== "pilot" && G.mode !== "initials" && !e.repeat) {
+      if (Cheat.armed && /^[a-z]$/i.test(e.key)) { Cheat.feed(e.key.toUpperCase()); e.preventDefault(); return; }   // not case sensitive
+      if (CHEAT_KEYS[e.key]) Cheat.feed(CHEAT_KEYS[e.key]);
+    }
     if (G.mode === "pilot") { Pilot.onKey(e); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (G.mode === "initials") {
@@ -1467,9 +1494,12 @@
       if (x < -0.5) IN.pad.add("left"); if (x > 0.5) IN.pad.add("right"); if (y < -0.5) IN.pad.add("up"); if (y > 0.5) IN.pad.add("down");
     }
     for (const a of IN.pad) if (!IN.padPrev.has(a)) {
-      IN.pressed.add(a); AU.unlock();
+      AU.unlock();
+      const codeMode = G.mode !== "pilot" && G.mode !== "initials";
+      if (codeMode && Cheat.armed && (a === "back" || a === "start")) { Cheat.feed(a === "back" ? "SELECT" : "START"); continue; }
+      IN.pressed.add(a);
       const t = { up: "U", down: "D", left: "L", right: "R", cancel: "B", fire: "A" }[a];
-      if (t && G.mode !== "pilot" && G.mode !== "initials") Cheat.feed(t);
+      if (t && codeMode) Cheat.feed(t);
     }
   }
   addEventListener("gamepadconnected", () => toast("GAMEPAD READY"));
@@ -1655,7 +1685,9 @@
     buildShip(C.white);
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple); setFavicon();
     if (G.pilot) buildShip(G.pilot.color);
-    G.support = !!store.get("support", false);
+    const savedSupport = store.get("support", "");
+    G.support = savedSupport === true ? "advanced" : ["advanced", "premium"].includes(savedSupport) ? savedSupport : "";
+    G.ops = !!store.get("ops", false);
     loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
     // the app manifest (installing to the home screen or Dock). Linked from here, not the HTML, because browsers refuse
     // manifest files on file:// pages. Single-file builds carry it inline with the page's own address as start URL.

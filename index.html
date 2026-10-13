@@ -62,6 +62,8 @@ body.public.paused .back { display: inline-block; animation: backIn .25s ease-ou
 .touchbar { position: fixed; right: 12px; top: 10px; z-index: 5; display: none; gap: 8px; }
 .touchbar button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(15, 14, 19, .75); color: var(--accent-2); font-family: var(--font-pixel); font-size: 12px; }
 body.touch .touchbar { display: flex; }
+.touchbar .quit { display: none; width: auto; padding: 0 12px; border-radius: 22px; font-size: 9px; color: #ff5c7a; }
+body.paused .touchbar .quit { display: block; }
 body.touch .hints { display: none; }
 @media (max-height: 560px) { .hints { display: none; } }
 
@@ -78,6 +80,16 @@ body.touch .hints { display: none; }
 .ev .ev-card canvas { image-rendering: pixelated; }
 .ev .ev-name { font-family: var(--font-pixel); font-size: clamp(12px, 1.4vw, 20px); line-height: 1.4; color: var(--accent-2); text-shadow: 3px 3px 0 var(--accent); overflow-wrap: anywhere; }
 .ev .ev-sub { font-family: var(--font-pixel); font-size: clamp(9px, .9vw, 13px); line-height: 1.6; color: var(--text); }
+/* phones: no room beside the game, so a strip under it: the logo, the event, a button to the sign-up page */
+.ev-strip { position: fixed; left: 50%; bottom: 0; z-index: 3; width: min(96vw, 520px); height: var(--below, 0px); transform: translateX(-50%);
+  display: none; flex-wrap: wrap; align-content: center; justify-content: center; align-items: center; gap: 8px 12px; padding: 6px 8px; text-align: center; }
+body.event.strip .ev-strip:not([hidden]) { display: flex; }
+.ev-strip img { height: clamp(24px, calc(var(--below, 0px) * .3), 56px); width: auto; padding: 4px; background: #fff; border-radius: 8px; }
+.ev-strip .ev-k { font-family: var(--font-pixel); font-size: 9px; letter-spacing: 1px; color: var(--accent-3); }
+.ev-strip .ev-name { font-family: var(--font-pixel); font-size: 12px; color: var(--accent-2); text-shadow: 2px 2px 0 var(--accent); }
+.ev-strip .ev-join { flex-basis: 100%; font-family: var(--font-pixel); font-size: 9px; line-height: 1.6; letter-spacing: .5px; color: #fff; text-decoration: none;
+  padding: 10px 12px; border-radius: 10px; background: var(--accent); box-shadow: 0 4px 0 #3d2494; touch-action: manipulation; }
+.ev-strip .ev-join[hidden] { display: none; }
 .ev .ev-url { font-size: 18px; color: var(--text-dim); overflow-wrap: anywhere; }
 
 /* choose your pilot */
@@ -127,7 +139,7 @@ body.touch .hints { display: none; }
 <body>
 <div id="scanlines"></div>
 <a class="back" id="back" href="https://www.percona.com" title="percona.com">◀ PERCONA.COM</a>
-<div class="touchbar"><button type="button" id="t-pause" aria-label="Pause">II</button><button type="button" id="t-mute" aria-label="Sound on or off">♪</button></div>
+<div class="touchbar"><button type="button" id="t-quit" class="quit" aria-label="End this game (tap twice)">END</button><button type="button" id="t-pause" aria-label="Pause">II</button><button type="button" id="t-mute" aria-label="Sound on or off">♪</button></div>
 
 <main id="stage" aria-label="PERCONA REBELS">
   <canvas id="view" width="224" height="288" role="img" aria-label="PERCONA REBELS game screen. Press Enter to insert a coin, Enter again to start. Arrow keys or WASD move, Space fires, P or Escape pauses, M toggles sound."></canvas>
@@ -138,6 +150,11 @@ body.touch .hints { display: none; }
   <span class="ev-k">LIVE AT</span>
   <div class="ev-card"><img alt="" referrerpolicy="no-referrer" hidden></div>
   <span class="ev-name"></span>
+</aside>
+<aside class="ev-strip" id="event-strip" hidden aria-label="Event">
+  <img alt="" referrerpolicy="no-referrer" hidden>
+  <span><span class="ev-k">LIVE AT</span> <span class="ev-name"></span></span>
+  <a class="ev-join" target="_blank" rel="noopener" hidden></a>
 </aside>
 <aside class="ev" id="event-qr" hidden aria-label="Join the Percona Community">
   <span class="ev-k">JOIN THE REBELLION</span>

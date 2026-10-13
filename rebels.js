@@ -531,6 +531,9 @@
     stage.style.width = dw / dpr + "px"; stage.style.height = dh / dpr + "px";
     const gutter = (innerWidth - dw / dpr) / 2;                                       // room beside the stage for the event panels
     document.documentElement.style.setProperty("--gutter", gutter + "px"); document.body.classList.toggle("wide", gutter >= 170);
+    // no room beside it (a phone): a strip under the stage instead, if there's room there
+    const below = innerHeight - (innerHeight / 2 + dh / dpr / 2 - (hintsH - 12) / 2);
+    document.documentElement.style.setProperty("--below", below + "px"); document.body.classList.toggle("strip", gutter < 170 && below >= 64);
     stage.style.setProperty("--px", scale / dpr + "px");
     stage.style.marginTop = -(hintsH - 12) / 2 + "px";
   }
@@ -769,8 +772,16 @@
       const signup = !!(World.event && World.event.codes && World.event.codes.signup);
       const id = [name, logo, qr, signup].join(" ");
       if (id === this.shown) return; this.shown = id;
-      const left = $("#event-logo"), right = $("#event-qr");
+      const left = $("#event-logo"), right = $("#event-qr"), strip = $("#event-strip");
       if (!left || !right) return;
+      if (strip) {
+        strip.hidden = !name;
+        const img = strip.querySelector("img"); img.hidden = !logo; img.alt = name + " logo";
+        if (logo) { img.onerror = () => { img.hidden = true; }; img.src = logo; }
+        strip.querySelector(".ev-name").textContent = name;
+        const join = strip.querySelector(".ev-join"); join.hidden = !qr;
+        if (qr) { join.href = qr; join.textContent = signup ? "JOIN THE PERCONA COMMUNITY: GET YOUR PLAY CODE ▸" : "JOIN THE PERCONA COMMUNITY ▸"; }
+      }
       left.hidden = !name;
       if (name) {
         const img = left.querySelector("img");
@@ -1672,8 +1683,10 @@
     g.fillStyle = "rgba(7,6,11,0.7)"; g.fillRect(0, 0, W, H);
     if (G.resumed) { text("WELCOME BACK!", W / 2, 96, C.teal, { align: "center" }); text("YOUR GAME WAS SAVED RIGHT HERE", W / 2, 108, C.dim, { small: true, align: "center" }); }
     text("PAUSED", W / 2, 120, C.yellow, { align: "center", scale: 2, shadow: C.purple });
+    const touch = document.body.classList.contains("touch"), armed = G.quitAt && G.t - G.quitAt < 3;
+    text(armed ? (touch ? "TAP END AGAIN TO END THIS GAME" : "Q AGAIN TO END THIS GAME") : touch ? "END (TOP RIGHT): END THIS GAME" : "Q: END THIS GAME", W / 2, 172, armed ? C.red : C.dim, { small: true, align: "center" });
     if (PUBLIC) {
-      text("P OR ESC TO RESUME", W / 2, 148, C.white, { small: true, align: "center" });
+      text(touch ? "II TO RESUME" : "P OR ESC TO RESUME", W / 2, 148, C.white, { small: true, align: "center" });
       text(`${BACK_NAME} IS THE LINK TOP LEFT`, W / 2, 158, C.dim, { small: true, align: "center" });
       return;
     }
@@ -1684,7 +1697,7 @@
   /* ================================================================== input: keyboard, gamepad, touch */
   const IN = { keys: new Set(), pad: new Set(), padPrev: new Set(), pressed: new Set(), ax: 0, ay: 0, dragX: 0, dragY: 0, touchId: null, lx: 0, ly: 0 };
   const KEYMAP = { ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right", ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down",
-    " ": "fire", Enter: "start", p: "pause", P: "pause", m: "mute", M: "mute", c: "crt", C: "crt", Escape: "back", 5: "coin", 1: "start" };
+    " ": "fire", Enter: "start", p: "pause", P: "pause", m: "mute", M: "mute", c: "crt", C: "crt", Escape: "back", 5: "coin", 1: "start", q: "quit", Q: "quit" };
   const held = (a) => IN.keys.has(a) || IN.pad.has(a);
   const pressed = (a) => IN.pressed.has(a);
   const CHEAT_KEYS = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", b: "B", B: "B", a: "A", A: "A" };   // inputs for the secret codes
@@ -1763,12 +1776,19 @@
   const endTouch = (e) => { if (e.pointerId === IN.touchId) IN.touchId = null; };
   addEventListener("pointerup", endTouch); addEventListener("pointercancel", endTouch);
   $("#t-pause")?.addEventListener("click", () => { AU.unlock(); if (G.mode === "game") setPause(!G.paused); });
+  $("#t-quit")?.addEventListener("click", () => { AU.unlock(); quitGame(); });
   $("#t-mute")?.addEventListener("click", () => { AU.unlock(); toggleMute(); });
 
   function toggleMute() { AU.setMuted(!AU.muted); toast(AU.muted ? "SOUND OFF" : "SOUND ON"); updateSoundIcon(); }
   function updateSoundIcon() { const b = $("#t-mute"); if (b) b.textContent = AU.muted ? "♪̸" : "♪"; }
   function toggleCrt() { G.crt = !G.crt; store.set("crt", G.crt); applyCrt(); toast(G.crt ? "CRT FILTER ON" : "CRT FILTER OFF"); }
-  function setPause(on) { G.paused = on; G.pauseEsc = false; document.body.classList.toggle("paused", on); if (!on) G.resumed = false; if (on) Music.stop(); else if (G.world && !G.world.demo) Music.start(G.world.isBoss); AU.blip(on ? 400 : 800); }
+  // END GAME, from the pause screen: twice within 3 s, so a good run is never thrown away by one stray press. No score.
+  function quitGame() {
+    if (G.mode !== "game" || !G.paused) return;
+    if (!(G.quitAt && G.t - G.quitAt < 3)) { G.quitAt = G.t; AU.blip(300); return; }
+    G.quitAt = 0; Music.stop(); Suspend.clear(); setPause(false); G.world = null; G.mode = "attract"; setAttract(0); AU.blip(200);
+  }
+  function setPause(on) { G.paused = on; G.pauseEsc = false; G.quitAt = 0; document.body.classList.toggle("paused", on); if (!on) G.resumed = false; if (on) Music.stop(); else if (G.world && !G.world.demo) Music.start(G.world.isBoss); AU.blip(on ? 400 : 800); }
   function leave() {
     Music.stop(); Suspend.save();
     const target = $("#back")?.href || "index.html", same = (u) => { try { const x = new URL(u, location.href); return x.origin + x.pathname.replace(/\.html$|\/$/, ""); } catch { return u; } };
@@ -1786,6 +1806,7 @@
         if (pressed("back") && PUBLIC) setPause(!G.paused);
         else if (pressed("back")) { if (G.paused && G.pauseEsc) leave(); else { if (!G.paused) setPause(true); G.pauseEsc = true; } }
         else if (pressed("pause") || pressed("start")) setPause(!G.paused);
+        else if (pressed("quit") && G.paused) quitGame();
         break;
       case "gameover": if (go && G.over.t > 1.5) finishGameOver(); if (pressed("back") && !PUBLIC) leave(); break;
       case "initials":

@@ -65,6 +65,21 @@ body.touch .touchbar { display: flex; }
 body.touch .hints { display: none; }
 @media (max-height: 560px) { .hints { display: none; } }
 
+/* events (?event=…): the event's logo on the left of the stage, the community sign-up QR code on the right */
+.ev { position: fixed; top: 50%; z-index: 1; width: min(calc(var(--gutter, 0px) - 40px), 300px); transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.ev[hidden], body:not(.wide) .ev { display: none; }
+#event-logo { left: calc(var(--gutter, 0px) / 2); }
+#event-qr { left: calc(100vw - var(--gutter, 0px) / 2); }
+.ev .ev-k { font-family: var(--font-pixel); font-size: 11px; letter-spacing: 2px; color: var(--accent-3); }
+.ev .ev-card { width: 100%; padding: 8%; background: #fff; border-radius: 16px; line-height: 0;
+  box-shadow: 0 0 0 4px rgba(101, 61, 244, .55), 0 0 50px rgba(101, 61, 244, .5); }
+.ev .ev-card img, .ev .ev-card canvas { width: 100%; height: auto; }
+.ev .ev-card canvas { image-rendering: pixelated; }
+.ev .ev-name { font-family: var(--font-pixel); font-size: clamp(12px, 1.4vw, 20px); line-height: 1.4; color: var(--accent-2); text-shadow: 3px 3px 0 var(--accent); overflow-wrap: anywhere; }
+.ev .ev-sub { font-family: var(--font-pixel); font-size: clamp(9px, .9vw, 13px); line-height: 1.6; color: var(--text); }
+.ev .ev-url { font-size: 18px; color: var(--text-dim); overflow-wrap: anywhere; }
+
 /* choose your pilot */
 .pilot { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: rgba(7, 6, 11, .82); backdrop-filter: blur(3px); touch-action: auto; }
 .pilot[hidden] { display: none; }
@@ -106,6 +121,19 @@ body.touch .hints { display: none; }
   <canvas id="view" width="224" height="288" role="img" aria-label="PERCONA REBELS game screen. Press Enter to insert a coin, Enter again to start. Arrow keys or WASD move, Space fires, P or Escape pauses, M toggles sound."></canvas>
   <canvas id="crt" width="224" height="288" hidden aria-hidden="true"></canvas>
 </main>
+
+<aside class="ev" id="event-logo" hidden aria-label="Event">
+  <span class="ev-k">LIVE AT</span>
+  <div class="ev-card"><img alt="" referrerpolicy="no-referrer" hidden></div>
+  <span class="ev-name"></span>
+</aside>
+<aside class="ev" id="event-qr" hidden aria-label="Join the Percona Community">
+  <span class="ev-k">JOIN THE REBELLION</span>
+  <div class="ev-card ev-code"></div>
+  <span class="ev-sub">SCAN TO JOIN THE PERCONA COMMUNITY</span>
+  <span class="ev-name">AND ENTER THE RAFFLE</span>
+  <span class="ev-url"></span>
+</aside>
 
 <p class="hints"><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> move · <kbd>Space</kbd> fire · <kbd>Enter</kbd> coin + start · <kbd>P</kbd> / <kbd>Esc</kbd> pause · <kbd>M</kbd> sound · <kbd>C</kbd> CRT · gamepad and touch work too</p>
 

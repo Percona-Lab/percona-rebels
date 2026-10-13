@@ -84,6 +84,11 @@ but faked scores get removed.
   a game. Nothing else: no names, no ids, and Apps Script never sees your IP address.
 * **Your own table** stays in your browser's `localStorage`, and the game falls back to it if the world table can't be
   reached.
+* **At events:** a conference booth gets its own TOP 10 with `?event=<id>` in the link (for example
+  [`?event=pgconfeu`](https://percona-lab.github.io/percona-rebels/?event=pgconfeu)), kept apart from the world table.
+  Only the booth's own link posts to it; elsewhere the event board is view-only. The page shows the event's logo and a
+  QR code for the [Percona Community](https://percona.community/) sign-up, which is also how you enter the booth
+  raffle. The game itself still collects nothing but initials and the numbers above.
 * **Running your own copy:** set up the script with [`leaderboard/SETUP.md`](leaderboard/SETUP.md) and put its URL in
   `window.REBELS_LEADERBOARD` in `index.html`, or remove that line to play offline only.
 
@@ -109,5 +114,6 @@ off here: no directory data is part of this repository.
 * "Percona", the Percona logo (the mountain mark the player's ship is drawn from) and the Percona product icons (PMM,
   Percona Operators, Percona for MySQL) are trademarks of Percona LLC. They are **not** covered by the MIT License; see
   [LICENSE](LICENSE).
-* All enemy and boss art is original. No third-party logos or trademarks are used.
+* All enemy and boss art is original. No third-party logos or trademarks are part of this repository. Event pages
+  show the event's own logo, loaded from the event's website when the page runs.
 * `leaderboard/Code.gs` is part of the code and also MIT licensed.

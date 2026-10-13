@@ -4,6 +4,8 @@
  * A Google Apps Script web app bound to a Google Sheet. The game (a static page) calls it:
  *   GET  <exec URL>?action=top               -> { ok: true, top: [{ n, s, w }, ...] }                 (best 10 shown)
  *   GET  <exec URL>?action=start             -> { ok: true, ticket }                                  (when a game starts)
+ *   Add &event=<id> to either for an event board (rows in the "events" tab). Starting an event game also needs the
+ *   booth's &key=<key>; the event's ticket then carries the event, so its score lands on that board only.
  *   POST <exec URL>?action=submit  (text)    -> { ok: true, rank, top, pending } or { ok: false, error }
  *        body: {"x":"<ticket>","n":"AAA","s":12340,"w":7,"t":415,"k":88,"v":2}
  *              ticket, initials, score, wave, seconds played, kills, game version
@@ -17,14 +19,24 @@
  *      Untick any row to hide it, or delete it.
  * None of this stops a patient cheater who plays along in real time with a doctored client; that's what 3 is for.
  *
- * Stored per score: time, initials, score, wave, seconds, kills, version, approved. Nothing else: Apps Script never
+ * Event boards: one row per event in the "events" tab (id, name, open, key, qr, logo). Only the booth (with the key) can
+ * post to an event board; anyone can view it. Event scores never show on the world table. To move one to the world
+ * table later, clear its "event" cell. qr is the sign-up link the game shows as a QR code at that event; logo is an
+ * https link to the event's logo, shown next to the game on that event's page only.
+ *
+ * Stored per score: time, initials, score, wave, seconds, kills, version, approved, event. Nothing else: Apps Script never
  * sees players' IP addresses, and the game sends no names or ids. The spreadsheet itself can stay private.
  * Setup and redeploying: see SETUP.md next to this file.
  */
 
 const SHEET_NAME = "scores";
-const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved"];
-const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General"];
+const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved", "event"];
+const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General", "@"];
+const APPROVED_COL = 8;          // 1-based column of the "approved" tick box
+const EVENTS_SHEET = "events";
+const EVENTS_HEADER = ["event", "name", "open", "key", "qr", "logo"];
+const COMMUNITY_SIGNUP = "https://percona.community/contribute/newsletter/";
+const PGCONFEU_LOGO = "https://2026.pgconf.eu/static/2494bba3/img/logo/logo.svg";
 const REVIEW_ABOVE = Infinity;   // no review: every score shows at once (set e.g. 100000 to hold bigger ones back)
 const KEEP_ROWS = 2000;          // the sheet is trimmed to the best KEEP_ROWS scores
 const CACHE_SECONDS = 20;        // how long the top 10 is cached between reads
@@ -35,20 +47,30 @@ const MAX_SUBMITS_PER_MINUTE = 60;
 const BLOCKED = ["ASS", "CUM", "CNT", "DIK", "DIC", "FAG", "FCK", "FUC", "FUK", "FUX", "KKK", "KYS", "NAZ", "NIG", "PIS", "SEX", "SHT", "TIT", "XXX"];
 
 function doGet(e) {
-  const action = (e && e.parameter && e.parameter.action) || "top";
+  const p = (e && e.parameter) || {};
+  const action = p.action || "top";
   const cache = CacheService.getScriptCache();
+  let ev = null;
+  if (p.event) {
+    ev = events_()[String(p.event).toLowerCase().trim()];
+    if (!ev) return json_({ ok: false, error: "event" });
+  }
   if (action === "start") {
+    if (ev && !ev.open) return json_({ ok: false, error: "closed" });
+    if (ev && (!ev.key || String(p.key || "") !== ev.key)) return json_({ ok: false, error: "key" });   // booth only
     if (!underLimit_(cache, "starts", MAX_STARTS_PER_MINUTE)) return json_({ ok: false, error: "busy" });
     const ticket = Utilities.getUuid();
-    cache.put("tk:" + ticket, String(Date.now()), TICKET_HOURS * 3600);
+    cache.put("tk:" + ticket, JSON.stringify({ t: Date.now(), e: ev ? ev.id : "" }), TICKET_HOURS * 3600);
     return json_({ ok: true, ticket: ticket });
   }
   if (action !== "top") return json_({ ok: false, error: "unknown action" });
-  const hit = cache.get("top");
-  if (hit) return json_({ ok: true, top: JSON.parse(hit) });
-  const top = top_(rows_());
-  cache.put("top", JSON.stringify(top), CACHE_SECONDS);
-  return json_({ ok: true, top: top });
+  const info = ev ? { id: ev.id, name: ev.name, open: ev.open, qr: ev.qr, logo: ev.logo } : undefined;
+  const board = "top:" + (ev ? ev.id : "*");
+  const hit = cache.get(board);
+  if (hit) return json_({ ok: true, top: JSON.parse(hit), event: info });
+  const top = top_(rows_(ev ? ev.id : ""));
+  cache.put(board, JSON.stringify(top), CACHE_SECONDS);
+  return json_({ ok: true, top: top, event: info });
 }
 
 function doPost(e) {
@@ -60,9 +82,10 @@ function doPost(e) {
   const cache = CacheService.getScriptCache();
   if (!underLimit_(cache, "submits", MAX_SUBMITS_PER_MINUTE)) return json_({ ok: false, error: "busy" });
   const key = "tk:" + String(d.x || "").slice(0, 64);
-  const started = Number(cache.get(key));
-  if (!started) return json_({ ok: false, error: "ticket" });            // unknown, expired or already used
+  const ticket = ticket_(cache.get(key));
+  if (!ticket) return json_({ ok: false, error: "ticket" });             // unknown, expired or already used
   cache.remove(key);                                                        // one score per ticket
+  const started = ticket.t, event = ticket.e;
   const elapsed = (Date.now() - started) / 1000;
   if (entry.t > elapsed + 10) return json_({ ok: false, error: "ticket" }); // claims more play time than really passed
 
@@ -74,13 +97,13 @@ function doPost(e) {
     // explicit formats first: a date-formatted cell would hand numbers back as dates, and "007" would become 7
     const row = sheet.getRange(sheet.getLastRow() + 1, 1, 1, HEADER.length);
     row.setNumberFormats([FORMATS]);
-    row.setValues([[new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending]]);
-    checkbox_(sheet.getRange(row.getRow(), HEADER.length));
-    const rows = rows_();
+    row.setValues([[new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending, event]]);
+    checkbox_(sheet.getRange(row.getRow(), APPROVED_COL));
+    const rows = rows_(event);
     // rank among the scores people can see (ties share a rank); a pending score is told where it would land
     const rank = 1 + rows.filter(function (r) { return r.s > entry.s; }).length;
     const top = top_(rows);
-    cache.put("top", JSON.stringify(top), CACHE_SECONDS);
+    cache.put("top:" + (event || "*"), JSON.stringify(top), CACHE_SECONDS);
     if (sheet.getLastRow() > KEEP_ROWS + 100) trim_(sheet);
     return json_({ ok: true, rank: rank, top: top, pending: pending });
   } finally {
@@ -114,14 +137,42 @@ function underLimit_(cache, name, max) {
   return true;
 }
 
+/** A ticket from the cache: {t: start time, e: event id}. Tickets from before events were plain start times. */
+function ticket_(raw) {
+  if (!raw) return null;
+  let v; try { v = JSON.parse(raw); } catch (err) { return null; }
+  if (typeof v === "number") return v > 0 ? { t: v, e: "" } : null;
+  return v && v.t > 0 ? { t: Number(v.t), e: String(v.e || "") } : null;
+}
+
+/** The events tab as { id: { id, name, open, key, qr, logo } }. Links that aren't https are dropped. */
+function events_() {
+  const out = {};
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET);
+  if (!sheet) return out;
+  const values = sheet.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) {
+    const r = values[i], id = String(r[0] || "").toLowerCase().trim();
+    if (!/^[a-z0-9-]{1,32}$/.test(id)) continue;
+    out[id] = { id: id, name: String(r[1] || id).slice(0, 24), open: r[2] === true || String(r[2]).toUpperCase() === "TRUE", key: String(r[3] || ""), qr: https_(r[4]), logo: https_(r[5]) };
+  }
+  return out;
+}
+
+/** An https link from a cell, or "". */
+function https_(v) {
+  const s = String(v || "").trim();
+  return /^https:\/\/[^\s"'<>]{1,500}$/.test(s) ? s : "";
+}
+
 /** A number from a cell, even if the sheet formatted it as a date (Sheets then returns a Date for it). */
 function num_(v) {
   if (v instanceof Date) return Math.round((v.getTime() - new Date(1899, 11, 30).getTime()) / 86400000);
   return Number(v);
 }
 
-/** Visible rows: approved (or from before the approved column existed) and within the game's limits. */
-function rows_() {
+/** Visible rows on one board ("" = the world table): approved (or older than that column) and within the game's limits. */
+function rows_(event) {
   const values = sheet_().getDataRange().getValues();
   const out = [];
   for (let i = 1; i < values.length; i++) {                   // row 0 is the header
@@ -129,7 +180,8 @@ function rows_() {
     const n = String(r[1] || "").toUpperCase().slice(0, 3), s = num_(r[2]), w = num_(r[3]);
     const approved = r[7] === true || r[7] === "" || r[7] === undefined || String(r[7]).toUpperCase() === "TRUE";
     const sane = n.trim().length > 0 && Number.isInteger(s) && s > 0 && s <= 5000000 && Number.isInteger(w) && w >= 1 && w <= 500;
-    if (approved && sane) out.push({ n: n, s: s, w: w });
+    const board = String(r[8] === undefined ? "" : r[8]).toLowerCase().trim();
+    if (approved && sane && board === (event || "")) out.push({ n: n, s: s, w: w });
   }
   return out;
 }
@@ -145,7 +197,7 @@ function trim_(sheet) {
   sheet.getRange(1, 1, 1, HEADER.length).setValues([HEADER]);
   if (body.length) {
     sheet.getRange(2, 1, body.length, HEADER.length).setValues(body.map(function (r) { const row = r.slice(0, HEADER.length); while (row.length < HEADER.length) row.push(""); return row; }));
-    checkbox_(sheet.getRange(2, HEADER.length, body.length, 1));
+    checkbox_(sheet.getRange(2, APPROVED_COL, body.length, 1));
   }
 }
 
@@ -157,7 +209,7 @@ function sheet_() {
     sheet.appendRow(HEADER);
     sheet.setFrozenRows(1);
   } else if (sheet.getRange(1, HEADER.length).getValue() !== HEADER[HEADER.length - 1]) {
-    sheet.getRange(1, 1, 1, HEADER.length).setValues([HEADER]);   // add the "approved" column to an older sheet
+    sheet.getRange(1, 1, 1, HEADER.length).setValues([HEADER]);   // add newer columns ("approved", "event") to an older sheet
   }
   return sheet;
 }
@@ -175,9 +227,22 @@ function json_(obj) {
  * Run once from the editor (Run ▶ setup): creates or upgrades the sheet and grants permissions before deploying.
  * Scores saved before the "approved" column existed are approved if they're at or below REVIEW_ABOVE and left
  * unticked (hidden) if they're above it, so they get the same review as new ones. It also repairs cells that the
- * sheet formatted as dates (they make scores read back as huge numbers). Safe to run again at any time.
+ * sheet formatted as dates (they make scores read back as huge numbers). It creates the "events" tab with an example
+ * event (PGConf.EU, with a random booth key) the first time. Safe to run again at any time.
  */
 function setup() {
+  const book = SpreadsheetApp.getActiveSpreadsheet();
+  if (!book.getSheetByName(EVENTS_SHEET)) {
+    const ev = book.insertSheet(EVENTS_SHEET);
+    ev.appendRow(EVENTS_HEADER);
+    ev.appendRow(["pgconfeu", "PGConf.EU", true, Utilities.getUuid().slice(0, 8), COMMUNITY_SIGNUP, PGCONFEU_LOGO]);
+    ev.setFrozenRows(1);
+    checkbox_(ev.getRange(2, 3, 200, 1));
+  } else {
+    // events tabs made before a column existed get its header (e.g. "logo")
+    const evs = book.getSheetByName(EVENTS_SHEET), head = evs.getRange(1, 1, 1, EVENTS_HEADER.length);
+    head.setValues([head.getValues()[0].map(function (h, i) { return h === "" ? EVENTS_HEADER[i] : h; })]);
+  }
   const sheet = sheet_();
   const last = sheet.getLastRow();
   if (last < 2) return;
@@ -186,7 +251,7 @@ function setup() {
   const fixed = body.getValues().map(function (r) { return [r[0], String(r[1]), num_(r[2]), num_(r[3]), num_(r[4]), num_(r[5]), num_(r[6])]; });
   body.setNumberFormats(fixed.map(function () { return FORMATS.slice(0, 7); }));
   body.setValues(fixed);
-  const range = sheet.getRange(2, HEADER.length, last - 1, 1);
+  const range = sheet.getRange(2, APPROVED_COL, last - 1, 1);
   const scores = sheet.getRange(2, 3, last - 1, 1).getValues();
   const flags = range.getValues().map(function (r, i) { return [r[0] === "" ? Number(scores[i][0]) <= REVIEW_ABOVE : r[0]]; });
   range.setValues(flags);

@@ -529,6 +529,8 @@
     const dw = Math.round(W * scale), dh = Math.round(H * scale);
     for (const c of [view, crtCanvas]) { c.width = dw; c.height = dh; }
     stage.style.width = dw / dpr + "px"; stage.style.height = dh / dpr + "px";
+    const gutter = (innerWidth - dw / dpr) / 2;                                       // room beside the stage for the event panels
+    document.documentElement.style.setProperty("--gutter", gutter + "px"); document.body.classList.toggle("wide", gutter >= 170);
     stage.style.setProperty("--px", scale / dpr + "px");
     stage.style.marginTop = -(hintsH - 12) / 2 + "px";
   }
@@ -543,12 +545,135 @@
     if (!Array.isArray(s) || !s.length) s = DEFAULT_SCORES.map(([n, sc, w]) => ({ n, s: sc, w }));
     G.scores = s.filter((x) => x && typeof x.s === "number").sort((a, b) => b.s - a.s).slice(0, 10);
   }
-  // the record and who holds it: the world table, this browser's table, or you, mid-game, once you pass it
+  // the record and who holds it: the world table, this browser's table, or you, mid-game, once you pass it.
+  // At an event only the event board counts: its champion is the one the booth hands the prize to.
   function hiEntry() {
-    const best = [World.top?.[0], G.scores[0]].filter(Boolean).reduce((a, b) => (b.s > a.s ? b : a), { s: 0, n: "" });
+    const pool = World.evId && World.status === "ok" ? [World.top?.[0]] : [World.top?.[0], G.scores[0]];
+    const best = pool.filter(Boolean).reduce((a, b) => (b.s > a.s ? b : a), { s: 0, n: "" });
     const playing = G.world && !G.world.demo && (G.mode === "game" || G.mode === "gameover") ? G.world.score : 0;
     return playing > best.s ? { s: playing, n: "YOU" } : { s: best.s, n: String(best.n || "").slice(0, 3) };
   }
+
+  /* ================================================================== QR codes
+     A small QR encoder (byte mode, error correction level M, versions 1 to 10: up to 213 bytes), after Project Nayuki's
+     public domain reference. Used for the community sign-up link at events; made in the game, nothing is fetched. */
+  const QR = (() => {
+    const ECC = [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26], BLOCKS = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
+    const rawModules = (v) => { let r = (16 * v + 128) * v + 64; if (v >= 2) { const n = Math.floor(v / 7) + 2; r -= (25 * n - 10) * n - 55; if (v >= 7) r -= 36; } return r; };
+    const dataBytes = (v) => Math.floor(rawModules(v) / 8) - ECC[v] * BLOCKS[v];
+    const bit = (x, i) => ((x >>> i) & 1) !== 0;
+    const mul = (x, y) => { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11d); z ^= ((y >>> i) & 1) * x; } return z; };
+    function divisor(deg) {
+      const r = new Array(deg).fill(0); r[deg - 1] = 1; let root = 1;
+      for (let i = 0; i < deg; i++) { for (let j = 0; j < deg; j++) { r[j] = mul(r[j], root); if (j + 1 < deg) r[j] ^= r[j + 1]; } root = mul(root, 2); }
+      return r;
+    }
+    function remainder(data, div) {
+      const r = div.map(() => 0);
+      for (const b of data) { const f = b ^ r.shift(); r.push(0); div.forEach((c, i) => { r[i] ^= mul(c, f); }); }
+      return r;
+    }
+    function encode(text) {
+      const bytes = Array.from(new TextEncoder().encode(text));
+      let v = 1; while (v <= 10 && 4 + (v < 10 ? 8 : 16) + bytes.length * 8 > dataBytes(v) * 8) v++;
+      if (v > 10) return null;
+      // data bits: byte mode, length, bytes, terminator, padding
+      const bits = [], push = (val, n) => { for (let i = n - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+      push(4, 4); push(bytes.length, v < 10 ? 8 : 16); bytes.forEach((b) => push(b, 8));
+      const cap = dataBytes(v) * 8;
+      push(0, Math.min(4, cap - bits.length)); push(0, (8 - (bits.length % 8)) % 8);
+      for (let p = 0xec; bits.length < cap; p ^= 0xec ^ 0x11) push(p, 8);
+      const data = []; for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(""), 2));
+      // error correction, split into blocks and interleaved
+      const nb = BLOCKS[v], el = ECC[v], raw = Math.floor(rawModules(v) / 8), nShort = nb - (raw % nb), shortLen = Math.floor(raw / nb), div = divisor(el);
+      const blocks = [];
+      for (let i = 0, k = 0; i < nb; i++) {
+        const dat = data.slice(k, k + shortLen - el + (i < nShort ? 0 : 1)); k += dat.length;
+        const ecc = remainder(dat, div); if (i < nShort) dat.push(0); blocks.push(dat.concat(ecc));
+      }
+      const code = [];
+      for (let i = 0; i < blocks[0].length; i++) blocks.forEach((b, j) => { if (i !== shortLen - el || j >= nShort) code.push(b[i]); });
+      // the grid: function patterns first
+      const size = v * 4 + 17, mod = [], fn = [];
+      for (let y = 0; y < size; y++) { mod.push(new Array(size).fill(false)); fn.push(new Array(size).fill(false)); }
+      const setF = (x, y, d) => { mod[y][x] = d; fn[y][x] = true; };
+      for (let i = 0; i < size; i++) { setF(6, i, i % 2 === 0); setF(i, 6, i % 2 === 0); }
+      const finder = (cx, cy) => { for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const d = Math.max(Math.abs(dx), Math.abs(dy)), x = cx + dx, y = cy + dy; if (x >= 0 && x < size && y >= 0 && y < size) setF(x, y, d !== 2 && d !== 4); } };
+      finder(3, 3); finder(size - 4, 3); finder(3, size - 4);
+      const align = [];
+      if (v > 1) { const n = Math.floor(v / 7) + 2, step = Math.ceil((v * 4 + 4) / (n * 2 - 2)) * 2; align.push(6); for (let p = size - 7; align.length < n; p -= step) align.splice(1, 0, p); }
+      align.forEach((ay, i) => align.forEach((ax, j) => {
+        if ((i === 0 && j === 0) || (i === 0 && j === align.length - 1) || (i === align.length - 1 && j === 0)) return;
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) setF(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      }));
+      const format = (mask) => {
+        const d = mask;                                   // level M is 00
+        let r = d; for (let i = 0; i < 10; i++) r = (r << 1) ^ ((r >>> 9) * 0x537);
+        const b = ((d << 10) | r) ^ 0x5412;
+        for (let i = 0; i <= 5; i++) setF(8, i, bit(b, i));
+        setF(8, 7, bit(b, 6)); setF(8, 8, bit(b, 7)); setF(7, 8, bit(b, 8));
+        for (let i = 9; i < 15; i++) setF(14 - i, 8, bit(b, i));
+        for (let i = 0; i < 8; i++) setF(size - 1 - i, 8, bit(b, i));
+        for (let i = 8; i < 15; i++) setF(8, size - 15 + i, bit(b, i));
+        setF(8, size - 8, true);
+      };
+      format(0);
+      if (v >= 7) {
+        let r = v; for (let i = 0; i < 12; i++) r = (r << 1) ^ ((r >>> 11) * 0x1f25);
+        const b = (v << 12) | r;
+        for (let i = 0; i < 18; i++) { const a = size - 11 + (i % 3), c = Math.floor(i / 3); setF(a, c, bit(b, i)); setF(c, a, bit(b, i)); }
+      }
+      // the codewords, in the zigzag
+      let i = 0;
+      for (let right = size - 1; right >= 1; right -= 2) {
+        if (right === 6) right = 5;
+        for (let vert = 0; vert < size; vert++) for (let j = 0; j < 2; j++) {
+          const x = right - j, y = ((right + 1) & 2) === 0 ? size - 1 - vert : vert;
+          if (!fn[y][x] && i < code.length * 8) { mod[y][x] = bit(code[i >>> 3], 7 - (i & 7)); i++; }
+        }
+      }
+      // the mask with the lowest penalty (runs, 2x2 blocks, balance)
+      const masks = [(x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, (x) => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
+        (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => ((x * y) % 2) + ((x * y) % 3) === 0,
+        (x, y) => (((x * y) % 2) + ((x * y) % 3)) % 2 === 0, (x, y) => (((x + y) % 2) + ((x * y) % 3)) % 2 === 0];
+      const flip = (m) => { for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!fn[y][x] && masks[m](x, y)) mod[y][x] = !mod[y][x]; };
+      const penalty = () => {
+        let p = 0, dark = 0;
+        for (let a = 0; a < size; a++) for (const row of [true, false]) {
+          let run = 1;
+          for (let b = 1; b <= size; b++) {
+            const same = b < size && (row ? mod[a][b] === mod[a][b - 1] : mod[b][a] === mod[b - 1][a]);
+            if (same) run++; else { if (run >= 5) p += run - 2; run = 1; }
+          }
+        }
+        for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+          if (mod[y][x]) dark++;
+          if (x && y && mod[y][x] === mod[y][x - 1] && mod[y][x] === mod[y - 1][x] && mod[y][x] === mod[y - 1][x - 1]) p += 3;
+        }
+        return p + Math.floor(Math.abs(dark * 20 - size * size * 10) / (size * size)) * 10;
+      };
+      let best = 0, bestP = Infinity;
+      for (let m = 0; m < 8; m++) { flip(m); format(m); const p = penalty(); if (p < bestP) { bestP = p; best = m; } flip(m); }
+      flip(best); format(best);
+      return mod;
+    }
+    const cache = new Map();
+    return {
+      encode,
+      // the code as a canvas: dark modules on white, with a quiet zone of 4 modules, `scale` pixels per module
+      image(text, scale) {
+        const id = scale + " " + text;
+        if (!cache.has(id)) {
+          const m = encode(text); if (!m) { cache.set(id, null); return null; }
+          const n = m.length, c = document.createElement("canvas"), x = c.getContext("2d");
+          c.width = c.height = (n + 8) * scale; x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.fillStyle = "#000";
+          m.forEach((row, y) => row.forEach((d, i) => { if (d) x.fillRect((i + 4) * scale, (y + 4) * scale, scale, scale); }));
+          cache.set(id, c);
+        }
+        return cache.get(id);
+      },
+    };
+  })();
 
   /* ================================================================== world high scores (optional, public build)
      A Google Apps Script web app in front of a Google Sheet keeps one table for every player (leaderboard/Code.gs).
@@ -557,9 +682,21 @@
      ticket. Big scores wait for a human check before they show. Only initials, score, wave, play time and kill count
      are sent. */
   const LEADERBOARD_URL = String(window.REBELS_LEADERBOARD || "");
+  // Event boards: ?event=<id> shows that event's TOP 10 instead of the world's. The booth's link adds &key=<key>; only
+  // games started with the key post to the event board. Without it, the event board is view-only and scores stay local.
+  const EVENT = (() => {
+    const q = new URLSearchParams(location.search), id = String(q.get("event") || "").toLowerCase().trim();
+    return /^[a-z0-9-]{1,32}$/.test(id) ? { id, key: String(q.get("key") || "") } : null;
+  })();
   const World = {
     top: null, status: LEADERBOARD_URL ? "loading" : "off", rank: null, sending: false, note: "", loadedAt: 0, ticket: null,
+    event: null, evId: EVENT ? EVENT.id : null,
     get on() { return !!LEADERBOARD_URL; },
+    get booth() { return !!(this.evId && EVENT && EVENT.key); },
+    get title() { return this.evId ? String((this.event && this.event.name) || this.evId).toUpperCase().slice(0, 16) : "WORLD"; },
+    get qr() { return this.evId && this.event && /^https:\/\//.test(this.event.qr || "") ? this.event.qr : ""; },
+    get table() { return this.evId ? "EVENT TABLE" : "WORLD TABLE"; },
+    get logo() { return this.evId && this.event && /^https:\/\//.test(this.event.logo || "") ? this.event.logo : ""; },
     async call(params, body) {
       const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 8000);
       try {
@@ -575,29 +712,70 @@
     async refresh() {
       if (!this.on || this.sending) return;
       this.loadedAt = G.t;
-      try { const d = await this.call({ action: "top" }); if (!d || !d.ok) throw new Error("bad reply"); this.top = this.clean(d.top); this.status = "ok"; }
+      try {
+        const d = await this.call(this.evId ? { action: "top", event: this.evId } : { action: "top" });
+        if (d && !d.ok && d.error === "event" && this.evId) { toast(`NO EVENT CALLED ${this.evId.toUpperCase().slice(0, 20)}`); this.evId = null; this.event = null; EventPanels.show(); return this.refresh(); }
+        if (!d || !d.ok) throw new Error("bad reply");
+        if (this.evId && !(d.event && typeof d.event === "object")) throw new Error("no events here");   // a script from before events
+        this.top = this.clean(d.top); this.status = "ok";
+        if (this.evId) { this.event = d.event && typeof d.event === "object" ? { name: String(d.event.name || ""), qr: String(d.event.qr || ""), logo: String(d.event.logo || ""), open: !!d.event.open } : null; EventPanels.show(); }
+      }
       catch { if (this.status !== "ok") this.status = "offline"; }
     },
     async startRun() {
       this.ticket = null;
       if (!this.on) return;
-      try { const d = await this.call({ action: "start" }); if (d && d.ok && d.ticket) this.ticket = String(d.ticket); } catch { /* no ticket: the score stays local */ }
+      if (this.evId && !this.booth) return;                                  // event spectators: scores stay local
+      try {
+        const d = await this.call(this.evId ? { action: "start", event: this.evId, key: EVENT.key } : { action: "start" });
+        if (d && d.ok && d.ticket) this.ticket = String(d.ticket);
+        else if (d && (d.error === "key" || d.error === "closed")) this.ticketError = d.error;
+      } catch { /* no ticket: the score stays local */ }
     },
-    qualifies(score) { return this.on && this.status === "ok" && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
+    qualifies(score) { return this.on && this.status === "ok" && !(this.evId && !this.booth) && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
     async submit(entry) {
       if (!this.on || this.status === "off") return;
-      this.sending = true; this.rank = null; this.note = "SENDING TO THE WORLD TABLE...";
+      if (this.evId && !this.booth) { this.note = "EVENT SCORES ARE RECORDED AT THE BOOTH"; return; }
+      if (this.evId && !this.event) { this.note = "EVENT TABLE OFFLINE. SAVED HERE."; return; }   // never confirmed by the server: never post
+      if (this.evId && !this.ticket) { this.note = this.ticketError === "closed" ? "THIS EVENT IS CLOSED. SAVED HERE." : "THIS BOOTH LINK ISN'T VALID. SAVED HERE."; return; }
+      this.sending = true; this.rank = null; this.note = `SENDING TO THE ${this.table}...`;
       const ticket = this.ticket; this.ticket = null;
       try {
         const d = await this.call({ action: "submit" }, { ...entry, x: ticket || "" });
         if (d && d.ok && d.pending) { this.top = this.clean(d.top); this.status = "ok"; this.note = "BIG SCORE! IT SHOWS ONCE A HUMAN CHECKS IT"; }
-        else if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `WORLD RANK #${d.rank}` : "SENT TO THE WORLD TABLE"; }
-        else this.note = d && d.error === "ticket" ? "COULDN'T VERIFY THIS RUN. SAVED HERE." : d && d.error === "busy" ? "WORLD TABLE BUSY. SAVED HERE." : "THE WORLD TABLE SAID NO";
-      } catch { this.note = "WORLD TABLE OFFLINE. SAVED HERE."; }
+        else if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `${this.title} RANK #${d.rank}` : "SENT TO THE TABLE"; }
+        else this.note = d && d.error === "ticket" ? "COULDN'T VERIFY THIS RUN. SAVED HERE." : d && d.error === "busy" ? `${this.table} BUSY. SAVED HERE.` : `THE ${this.table} SAID NO`;
+      } catch { this.note = `${this.table} OFFLINE. SAVED HERE.`; }
       finally { this.sending = false; }
     },
   };
   function toast(msg) { G.toast = { msg, t: 0 }; }
+  /* At an event the page shows the event's logo beside the stage and the community sign-up QR code on the other side,
+     when the window is wide enough for them. Both come from the events tab at run time: nothing is stored here. */
+  const EventPanels = {
+    shown: "",
+    show() {
+      const logo = World.logo, qr = World.qr, name = World.event ? World.event.name || World.evId : "";
+      const id = [name, logo, qr].join(" ");
+      if (id === this.shown) return; this.shown = id;
+      const left = $("#event-logo"), right = $("#event-qr");
+      if (!left || !right) return;
+      left.hidden = !name;
+      if (name) {
+        const img = left.querySelector("img");
+        img.hidden = img.parentNode.hidden = !logo; img.alt = name + " logo";
+        if (logo) { img.onerror = () => { img.hidden = img.parentNode.hidden = true; }; img.src = logo; }
+        left.querySelector(".ev-name").textContent = name;
+      }
+      right.hidden = !qr;
+      if (qr) {
+        const c = QR.image(qr, 8), box = right.querySelector(".ev-code");
+        if (c) { c.setAttribute("role", "img"); c.setAttribute("aria-label", "QR code for " + qr); box.replaceChildren(c); }
+        right.querySelector(".ev-url").textContent = qr.replace(/^https:\/\//, "").replace(/\/$/, "");
+      }
+      document.body.classList.toggle("event", !!name);
+    },
+  };
 
   /* ================================================================== secret codes
      Easter eggs. The codes are kept as fingerprints, not spelled out: no spoilers in the source.
@@ -1249,13 +1427,14 @@
   }
 
   /* ================================================================== attract mode */
-  const ATTRACT = [["title", 9], ["enemies", 9], ["powerups", 7], ["demo", 26], ["scores", 7], ["world", 7]];
+  const ATTRACT = [["title", 9], ["enemies", 9], ["powerups", 7], ["demo", 26], ["scores", 7], ["world", 7], ["raffle", 9]];
   function setAttract(i) {
     G.attract.i = ((i % ATTRACT.length) + ATTRACT.length) % ATTRACT.length; G.attract.t = 0; G.demo = null;
     if (ATTRACT[G.attract.i][0] === "world") {
       if (World.status !== "ok") { if (World.on && G.t - World.loadedAt > 30) World.refresh(); setAttract(G.attract.i + 1); return; }
       if (G.t - World.loadedAt > 60) World.refresh();
     }
+    if (ATTRACT[G.attract.i][0] === "raffle" && !World.qr) { setAttract(G.attract.i + 1); return; }
     if (ATTRACT[G.attract.i][0] === "demo") { G.demo = newWorld(true); G.demo.wave = G.demoCount++ % RULES.bossEvery; startWave(G.demo); }
   }
   function updateAttract(dt) {
@@ -1271,6 +1450,7 @@
     text("REBELS", W / 2, 95, C.yellow, { align: "center", scale: 3, shadow: C.purple });
     text("FREEDOM FIGHTERS FOR OPEN SOURCE", W / 2, 124, C.lilac, { small: true, align: "center" });
     text("OPEN SOURCE STRIKES BACK", W / 2, 132, C.faint, { small: true, align: "center" });
+    if (World.evId && World.event) text(`LIVE AT ${World.title}`, W / 2, 140, C.teal, { small: true, align: "center" });
     if (G.credits) { if (blink(2)) text("PRESS START", W / 2, 150, C.yellow, { align: "center" }); text("1 REBEL ONLY", W / 2, 164, C.white, { small: true, align: "center" }); }
     else if (blink(1.6)) text("INSERT COIN", W / 2, 150, C.yellow, { align: "center" });
     const lines = ["ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", PUBLIC ? "P OR ESC PAUSE   M SOUND   C CRT" : `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
@@ -1322,6 +1502,21 @@
       const y = 60 + i * 16;
       text(ord[i], 20, y, col); text(pad(s.s), 64, y, col); text(String(s.n || "???").slice(0, 3), 124, y, col); text(String(s.w || 0).padStart(2, " "), 172, y, col);
     });
+  }
+
+  // at events: the community sign-up as a QR code (joining enters the raffle; the game itself collects nothing)
+  function renderRaffle() {
+    text("JOIN THE", W / 2, 24, C.white, { align: "center" });
+    text("REBELLION!", W / 2, 35, C.yellow, { align: "center", shadow: C.purple });
+    const one = QR.image(World.qr, 1); if (!one) return;
+    const img = QR.image(World.qr, Math.max(1, Math.min(4, Math.floor(132 / one.width))));
+    const y = 50 + Math.round((132 - img.height) / 2);
+    g.fillStyle = C.purple; g.fillRect(Math.round((W - img.width) / 2) - 2, y - 2, img.width + 4, img.height + 4);
+    g.drawImage(img, Math.round((W - img.width) / 2), y);
+    text("SCAN TO JOIN THE PERCONA COMMUNITY", W / 2, 192, C.teal, { small: true, align: "center" });
+    if (blink(1.2)) text("AND ENTER THE RAFFLE", W / 2, 201, C.yellow, { small: true, align: "center" });
+    text(World.qr.replace(/^https:\/\//, "").replace(/\/$/, "").slice(0, 52), W / 2, 214, C.dim, { small: true, align: "center" });
+    if (World.event && World.event.name) text("FIND US AT THE PERCONA BOOTH", W / 2, 228, C.lilac, { small: true, align: "center" });
   }
 
   /* ================================================================== game flow */
@@ -1401,7 +1596,7 @@
       const entry = { n, s: G.over.score, w: G.over.wave, d: new Date().toISOString().slice(0, 10) };
       G.scores.push(entry); G.scores.sort((a, b) => b.s - a.s); G.scores = G.scores.slice(0, 10); store.set("scores", G.scores);
       G.lastEntry = G.scores.indexOf(entry); G.mode = "scores"; G.scoresT = 0; AU.oneUp();
-      if (G.over.assisted) World.note = World.on ? "ASSISTED RUN: SAVED HERE, NOT WORLDWIDE" : "";
+      if (G.over.assisted) World.note = !World.on ? "" : World.evId ? "ASSISTED RUN: NOT ON THE EVENT TABLE" : "ASSISTED RUN: SAVED HERE, NOT WORLDWIDE";
       else World.submit({ n, s: G.over.score, w: G.over.wave, t: G.over.secs, k: G.over.kills, v: 2 });
     },
   };
@@ -1648,7 +1843,7 @@
       case "game": if (!G.paused) { stepWorld(G.world, dt, control()); if (G.world.phase === "over" && G.world.phaseT > 2.6) toGameOver(); } break;
       case "gameover": G.over.t += dt; if (G.world) stepWorld(G.world, dt, {}); if (G.over.t > 7) finishGameOver(); break;
       case "initials": G.ini.t += dt; if (G.ini.t > 45) Ini.submit(); break;
-      case "scores": G.scoresT += dt; if (G.scoresT > (World.on ? 12 : 9)) { G.mode = "attract"; setAttract(0); } break;
+      case "scores": G.scoresT += dt; if (G.scoresT > (World.qr ? 21 : World.on ? 12 : 9)) { G.mode = "attract"; setAttract(0); } break;
     }
   }
   function render() {
@@ -1657,14 +1852,16 @@
     if (G.mode === "attract" || G.mode === "pilot") {
       const name = ATTRACT[G.attract.i][0];
       if (name === "title" || G.mode === "pilot") renderTitle(); else if (name === "enemies") renderEnemyTable(); else if (name === "powerups") renderPowerTable();
-      else if (name === "scores") renderScoreTable(-1); else if (name === "world") renderScoreTable(-1, World.top, "WORLD TOP 10");
+      else if (name === "scores") renderScoreTable(-1); else if (name === "world") renderScoreTable(-1, World.top, `${World.title} TOP 10`);
+      else if (name === "raffle") renderRaffle();
       else if (name === "demo" && G.demo) renderWorld(G.demo);
     } else if (G.mode === "game") { renderWorld(G.world); if (G.paused) renderPause(); }
     else if (G.mode === "gameover") { renderWorld(G.world); renderGameOver(); }
     else if (G.mode === "initials") renderInitials();
     else if (G.mode === "scores") {
-      // after a game: your table first, then the world table with your rank
-      if (World.on && G.scoresT > 5) renderScoreTable(World.rank ? World.rank - 1 : -1, World.top, "WORLD TOP 10", World.note);
+      // after a game: your table first, then the world (or event) table with your rank, then at events the raffle
+      if (World.qr && G.scoresT > 12) renderRaffle();
+      else if (World.on && G.scoresT > 5) renderScoreTable(World.rank ? World.rank - 1 : -1, World.top, `${World.title} TOP 10`, World.note);
       else renderScoreTable(G.lastEntry, G.scores, undefined, World.on ? World.note : "");
     }
     renderHudTop();

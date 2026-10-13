@@ -81,9 +81,10 @@ A **key** column from the first version of event boards isn't used any more; del
 
 ### Play codes
 
-* **Raffle tickets:** buy a double roll (two halves with the same number) and type its first and last number in
-  **tickets**. At the booth, scan a badge and tear off a ticket: the stub goes in the raffle bowl, the player keeps
-  the half with the number. The script accepts numbers on the roll and nothing else.
+* **Raffle tickets:** buy a roll of numbered tickets and type its first and last number in **tickets**. At the
+  booth, scan a badge and hand over a ticket: its number is the player's code, and the ticket is their proof at prize
+  time. The script accepts numbers on the roll and nothing else. A single roll is enough; a double roll's stubs are
+  only needed if you also want a lucky draw among everyone who got a ticket.
 * **Sign-up codes:** the Percona Community welcome email (a HubSpot form) carries the contact's record id as the
   code. The script checks with HubSpot that the contact exists, so a mistyped code is refused. Set it up once:
   1. In HubSpot (a super admin): create a private app (**Settings → Integrations → Private apps**; in newer accounts

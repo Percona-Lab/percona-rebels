@@ -1537,7 +1537,8 @@
   /* At an event a play code is the token: no code, no game. Your own phone or laptop keeps the code and plays free on it
      from then on (5 changes it). The booth's shared machine (&booth) takes one code per credit and keeps none, so every
      player enters their own. */
-  const atEvent = () => !!(World.on && World.evId && World.event);
+  // from the first frame, even before the event's details arrive or if the table can't be reached: no code, no game
+  const atEvent = () => !!(World.on && World.evId);
   const Tokens = {
     queue: [],                                                                // codes inserted on a shared machine, one per credit
     get saved() { return PlayCode.personal && World.evId ? String(store.get("code." + World.evId, "") || "") : ""; },
@@ -1891,7 +1892,7 @@
       if (!this.el) return;
       const c = (World.event && World.event.codes) || {};
       G.mode = "playcode"; this.el.hidden = false; this.openedAt = performance.now(); this.busy = false;
-      $("#pc-sub").textContent = c.tickets && c.signup ? "Your raffle ticket number, or the code in your Percona Community welcome email."
+      $("#pc-sub").textContent = !World.event || (c.tickets && c.signup) ? "Your raffle ticket number, or the code in your Percona Community welcome email."
         : c.tickets ? "The number on your raffle ticket." : c.signup ? "The code in your Percona Community welcome email." : "This event isn't taking codes yet.";
       $("#pc-how").textContent = (c.signup ? "No code yet? Scan the QR code to join the Percona Community: it's in the welcome email. " : c.tickets ? "No ticket yet? Get one at the Percona booth. " : "")
         + (this.personal ? "This device keeps your code: one code, free play." : "One code, one game.");

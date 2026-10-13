@@ -89,7 +89,7 @@ but faked scores get removed.
   [`?event=pgconfeu`](https://percona-lab.github.io/percona-rebels/?event=pgconfeu)), kept apart from the world table.
   There your token is a play code: a raffle ticket number from the Percona booth, or the code in the
   [Percona Community](https://percona.community/) welcome email (scan the QR code on the page to sign up). Your
-  device keeps it, so you only type it once. The code is how the winners are found and sent with each event score;
+  device keeps it, so you only type it once. Add `&board` for a big leaderboard screen to put up next to the game. The code is how the winners are found and sent with each event score;
   the game still collects no names or emails.
 * **Running your own copy:** set up the script with [`leaderboard/SETUP.md`](leaderboard/SETUP.md) and put its URL in
   `window.REBELS_LEADERBOARD` in `index.html`, or remove that line to play offline only.

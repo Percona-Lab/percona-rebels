@@ -108,6 +108,9 @@ typo would put a high score on a code they can't claim the prize with.
 * **The booth's own machine:** add `&booth`: `…/?event=pgconfeu&booth`. Every game takes a code and the machine keeps
   none, so each player enters their own. Not a secret: it only changes what the machine remembers.
 * `&code=457123` fills a code in, for example in a link in the welcome email.
+* **The leaderboard screen** for a second monitor: add `&board`: `…/?event=pgconfeu&board`. The event's TOP 10, big and
+  refreshing every 15 seconds (new scores flash), with the event logo, the prize line, and QR codes to get a play code
+  and to play on your phone. Click once for fullscreen; it keeps the screen awake. `?board` alone shows the world's.
 
 ### On the page
 

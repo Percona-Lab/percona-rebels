@@ -1969,6 +1969,77 @@
     buildShip(p.color);
   }
 
+  /* ================================================================== leaderboard screen (&board)
+     For a second monitor at the booth: the event's TOP 10, big and refreshing on its own, with the event's logo and
+     prize line, and QR codes to get a play code and to play on your phone. Without ?event= it shows the world's TOP 10.
+     Click for fullscreen; the screen is kept awake while it shows. */
+  const BOARD = new URLSearchParams(location.search).has("board");
+  const Board = {
+    el: null, seen: null, refreshMs: 15000,
+    start() {
+      document.body.classList.add("board-mode");
+      const playUrl = new URL(location.href); ["board", "booth", "code"].forEach((k) => playUrl.searchParams.delete(k));
+      this.playUrl = playUrl.href;
+      const el = this.el = document.createElement("main"); el.id = "board"; el.setAttribute("aria-live", "polite");
+      el.innerHTML = `
+        <section class="b-side b-event" hidden><span class="b-k">LIVE AT</span><div class="b-card"><img alt="" referrerpolicy="no-referrer" hidden></div><h2 class="b-name"></h2></section>
+        <section class="b-main">
+          <div class="b-brand"><img class="b-mark" alt=""><div><span class="b-percona">PERCONA</span><span class="b-rebels">REBELS</span></div></div>
+          <h1 class="b-title"></h1>
+          <table class="b-table"><thead><tr><th>RANK</th><th>SCORE</th><th>NAME</th><th>WAVE</th></tr></thead><tbody></tbody></table>
+          <p class="b-prize"></p><p class="b-note"></p>
+        </section>
+        <section class="b-side b-qr">
+          <figure class="b-signup" hidden><div class="b-card b-code"></div><figcaption></figcaption></figure>
+          <figure class="b-play"><div class="b-card b-code"></div><figcaption>PLAY ON YOUR PHONE</figcaption></figure>
+        </section>`;
+      document.body.appendChild(el);
+      if (SHIP.title) el.querySelector(".b-mark").src = SHIP.title.toDataURL();
+      this.code(el.querySelector(".b-play .b-code"), this.playUrl);
+      el.addEventListener("click", () => {
+        if (document.fullscreenElement) document.exitFullscreen?.(); else document.documentElement.requestFullscreen?.().catch(() => {});
+      });
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) this.wake(); });
+      this.wake(); this.render();
+      const tick = () => World.refresh().then(() => this.render());
+      tick(); setInterval(tick, this.refreshMs);
+      window.PERCONA_REBELS = { mode: "board", World: { get status() { return World.status; }, get note() { return World.note; } }, version: 2 };
+    },
+    async wake() { try { await navigator.wakeLock?.request("screen"); } catch { /* not supported or not allowed: fine */ } },
+    code(box, url) {
+      const c = QR.image(url, 8); if (!c) return;
+      c.setAttribute("role", "img"); c.setAttribute("aria-label", "QR code for " + url); box.replaceChildren(c);
+    },
+    render() {
+      const el = this.el, ev = World.event, list = World.top || [];
+      document.title = `${World.title} TOP 10 · PERCONA REBELS`;
+      el.querySelector(".b-title").textContent = `${World.title} TOP 10`;
+      const side = el.querySelector(".b-event"); side.hidden = !World.evId;
+      if (World.evId) {
+        side.querySelector(".b-name").textContent = (ev && ev.name) || World.evId;
+        const img = side.querySelector("img");
+        if (World.logo && img.dataset.src !== World.logo) { img.dataset.src = World.logo; img.onload = () => { img.hidden = false; }; img.onerror = () => { img.hidden = true; }; img.src = World.logo; }
+        side.querySelector(".b-card").hidden = !World.logo;
+      }
+      el.querySelector(".b-prize").textContent = World.prize;
+      const signup = el.querySelector(".b-signup"), qr = World.qr;
+      signup.hidden = !qr;
+      if (qr && signup.dataset.url !== qr) { signup.dataset.url = qr; this.code(signup.querySelector(".b-code"), qr); }
+      if (qr) signup.querySelector("figcaption").textContent = ev && ev.codes && ev.codes.signup ? "GET YOUR PLAY CODE" : "JOIN THE PERCONA COMMUNITY";
+      // the table: always 10 rows; scores that weren't there last time flash
+      const ord = ["1ST", "2ND", "3RD", "4TH", "5TH", "6TH", "7TH", "8TH", "9TH", "10TH"], keys = list.map((e) => e.n + "|" + e.s);
+      el.querySelector("tbody").innerHTML = ord.map((o, i) => {
+        const e = list[i], fresh = e && this.seen && !this.seen.has(keys[i]);
+        return e ? `<tr class="${i === 0 ? "top" : i % 2 ? "odd" : "even"}${fresh ? " new" : ""}"><td>${o}</td><td>${pad(e.s)}</td><td>${esc(e.n)}</td><td>${e.w}</td></tr>`
+          : `<tr class="empty"><td>${o}</td><td>------</td><td>---</td><td>--</td></tr>`;
+      }).join("");
+      if (World.status === "ok") this.seen = new Set(keys);
+      const note = el.querySelector(".b-note");
+      note.textContent = !World.on ? "NO SCORE TABLE ON THIS PAGE" : World.status === "ok" ? (list.length ? "" : "NO SCORES YET. BE THE FIRST!")
+        : World.status === "offline" ? "SCORE TABLE OFFLINE. RETRYING..." : "LOADING...";
+    },
+  };
+
   /* ================================================================== main loop */
   let last = 0, acc = 0, frameNo = 0;
   function update(dt) {
@@ -2017,6 +2088,7 @@
     buildSmallFont(); buildBigFont(fontOk); prepareTypes(); loadScores(); seedStars();
     buildShip(C.white);
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple); setFavicon();
+    if (BOARD) { Board.start(); return; }                                       // the leaderboard screen: no game
     if (G.pilot) buildShip(G.pilot.color);
     const savedSupport = store.get("support", "");
     G.support = savedSupport === true ? "advanced" : ["advanced", "premium"].includes(savedSupport) ? savedSupport : "";

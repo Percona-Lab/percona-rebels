@@ -80,6 +80,48 @@ body.touch .hints { display: none; }
 .ev .ev-card canvas { image-rendering: pixelated; }
 .ev .ev-name { font-family: var(--font-pixel); font-size: clamp(12px, 1.4vw, 20px); line-height: 1.4; color: var(--accent-2); text-shadow: 3px 3px 0 var(--accent); overflow-wrap: anywhere; }
 .ev .ev-sub { font-family: var(--font-pixel); font-size: clamp(9px, .9vw, 13px); line-height: 1.6; color: var(--text); }
+/* the leaderboard screen (&board), for a second monitor */
+body.board-mode #stage, body.board-mode .hints, body.board-mode .touchbar, body.board-mode .back, body.board-mode .ev, body.board-mode .ev-strip { display: none !important; }
+body.board-mode { overflow: hidden; cursor: none; }
+#board { position: fixed; inset: 0; z-index: 2; display: grid; grid-template-columns: 1fr minmax(0, 1.7fr) 1fr; align-items: center; gap: 3vmin; padding: 3vmin 4vmin; }
+#board .b-side { display: flex; flex-direction: column; align-items: center; gap: 2.4vmin; text-align: center; }
+#board .b-side[hidden], #board figure[hidden] { display: none; }
+#board .b-k { font-family: var(--font-pixel); font-size: clamp(10px, 1.8vmin, 22px); letter-spacing: .3em; color: var(--accent-3); }
+#board .b-card { width: min(100%, 34vmin); padding: 7%; background: #fff; border-radius: 2vmin; line-height: 0;
+  box-shadow: 0 0 0 .5vmin rgba(101, 61, 244, .6), 0 0 6vmin rgba(101, 61, 244, .5); }
+#board .b-card[hidden] { display: none; }
+#board .b-card img, #board .b-card canvas { width: 100%; height: auto; }
+#board .b-card canvas { image-rendering: pixelated; }
+#board .b-name { margin: 0; font-family: var(--font-pixel); font-weight: normal; font-size: clamp(14px, 3vmin, 40px); color: var(--accent-2); text-shadow: .4vmin .4vmin 0 var(--accent); }
+#board figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 1.4vmin; }
+#board .b-qr .b-card { width: min(100%, 26vmin); }
+#board figcaption { font-family: var(--font-pixel); font-size: clamp(9px, 1.6vmin, 20px); line-height: 1.5; color: var(--text); }
+#board .b-main { display: flex; flex-direction: column; align-items: center; gap: 1.6vmin; min-width: 0; }
+#board .b-brand { display: flex; align-items: center; gap: 2vmin; }
+#board .b-mark { height: 9vmin; image-rendering: pixelated; filter: drop-shadow(.5vmin .5vmin 0 var(--accent)); }
+#board .b-brand div { display: flex; flex-direction: column; font-family: var(--font-pixel); line-height: 1.1; }
+#board .b-percona { font-size: clamp(10px, 2.2vmin, 28px); color: var(--text); }
+#board .b-rebels { font-size: clamp(22px, 6.5vmin, 84px); color: var(--accent-2); text-shadow: .6vmin .6vmin 0 var(--accent); }
+#board .b-title { margin: 1vmin 0 0; font-family: var(--font-pixel); font-weight: normal; font-size: clamp(16px, 4.2vmin, 56px); color: var(--accent-2); text-shadow: .5vmin .5vmin 0 var(--accent); text-align: center; }
+#board .b-table { border-collapse: collapse; font-family: var(--font-pixel); font-size: clamp(14px, 3.6vmin, 48px); }
+#board .b-table th { padding: 0 1.6vmin 1.2vmin; font-weight: normal; font-size: .45em; letter-spacing: .1em; color: #9d8cff; }
+#board .b-table td { padding: .55vmin 2.2vmin; text-align: right; white-space: nowrap; }
+#board .b-table td:nth-child(3) { text-align: left; }
+#board tr.top td { color: var(--accent-2); text-shadow: .4vmin .4vmin 0 var(--accent); }
+#board tr.odd td { color: var(--text); }
+#board tr.even td { color: #9d8cff; }
+#board tr.empty td { color: var(--text-faint); }
+#board tr.new td { animation: boardNew .5s steps(1) 16; }
+@keyframes boardNew { 50% { color: var(--accent-3); } }
+#board .b-prize { margin: .6vmin 0 0; font-family: var(--font-pixel); font-size: clamp(11px, 2.4vmin, 30px); color: var(--accent-2); text-align: center; }
+#board .b-prize:empty, #board .b-note:empty { display: none; }
+#board .b-note { margin: 0; font-family: var(--font-pixel); font-size: clamp(9px, 1.8vmin, 22px); color: var(--accent-3); text-align: center; }
+@media (max-aspect-ratio: 1/1) {
+  #board { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; align-content: center; }
+  #board .b-main { grid-column: 1 / -1; order: -1; }
+}
+@media (prefers-reduced-motion: reduce) { #board tr.new td { animation: none; color: var(--accent-3); } }
+
 /* phones: no room beside the game, so a strip under it: the logo, the event, a button to the sign-up page */
 .ev-strip { position: fixed; left: 50%; bottom: 0; z-index: 3; width: min(96vw, 520px); height: var(--below, 0px); transform: translateX(-50%);
   display: none; flex-wrap: wrap; align-content: center; justify-content: center; align-items: center; gap: 8px 12px; padding: 6px 8px; text-align: center; }

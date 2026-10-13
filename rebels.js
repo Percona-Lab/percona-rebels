@@ -1562,7 +1562,7 @@
      Leaving the page mid-game (Esc to ARCADE, the percona.com link, a refresh, closing the tab, a phone dropping the page
      in the background) saves the run in localStorage. The next visit within a day brings it back, paused. */
   const Suspend = {
-    key: "suspended", maxAge: 24 * 3600 * 1000,
+    key: "suspended" + (EVENT ? "." + EVENT.id : ""), maxAge: 24 * 3600 * 1000,   // one saved run per board: the world's, each event's
     save() {
       const w = G.world;
       if (G.mode !== "game" || !w || w.demo || w.phase === "over") return;

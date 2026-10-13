@@ -46,7 +46,7 @@ const EVENTS_SHEET = "events";
 const EVENTS_HEADER = ["event", "name", "open", "qr", "logo", "tickets", "signup codes", "prize", "closes"];
 const COMMUNITY_SIGNUP = "https://percona.community/contribute/newsletter/";
 const WINNERS_SHEET = "winners";
-const WINNERS_HEADER = ["event", "place", "initials", "score", "wave", "code", "proof", "time"];
+const WINNERS_HEADER = ["event", "place", "initials", "score", "wave", "code", "proof", "time", "notes"];   // notes: the only column to type in
 const WINNERS_PER_EVENT = 10;
 // Suspicion lines. The game's autopilot, over 300 games (2026-10-13), never went past: 26.5 s a wave on average,
 // 1.66 kills a second, 891 points a kill, 1,024 points a second (scoring 449,530 at best, champion level). The lines
@@ -236,7 +236,7 @@ function rows_(event) {
   const out = [];
   for (let i = 1; i < values.length; i++) {                   // row 0 is the header
     const r = values[i];
-    const n = String(r[1] || "").toUpperCase().slice(0, 3), s = num_(r[2]), w = num_(r[3]);
+    const n = String(r[1] || "").toUpperCase().slice(0, 3), s = num_(r[2]), w = house_(r) && !(num_(r[3]) >= 1) ? 1 : num_(r[3]);
     const approved = r[7] === true || r[7] === "" || r[7] === undefined || String(r[7]).toUpperCase() === "TRUE";
     const sane = n.trim().length > 0 && Number.isInteger(s) && s > 0 && s <= 5000000 && Number.isInteger(w) && w >= 1 && w <= 500;
     const board = String(r[8] === undefined ? "" : r[8]).toLowerCase().trim();
@@ -308,11 +308,26 @@ function suspect_(e, board, overlap) {
 /**
  * Rewrites the "winners" tab: each event's best approved scores, one per play code, with the code and the proof to ask
  * for (the ticket, or the welcome email); on a tie the earlier score places higher. Runs after every event score; use
- * REBELS → Update winners after ticking, unticking or deleting rows.
+ * REBELS → Update winners (or Run ▶ winners) after ticking, unticking or deleting rows. Everything but the notes column
+ * is rewritten each time, and the tab warns anyone who types elsewhere. Notes ("collected", "called at 15:00") are kept
+ * per event and code, so they stay with the player when the list re-sorts, and come back if a code drops out and returns.
  */
 function winners() {
   const book = SpreadsheetApp.getActiveSpreadsheet();
   const tab = book.getSheetByName(WINNERS_SHEET) || book.insertSheet(WINNERS_SHEET);
+  guard_(tab);
+  // the notes typed in the tab now, merged into the ones kept from before
+  const props = PropertiesService.getDocumentProperties(), NOTE = WINNERS_HEADER.length - 1;
+  let notes = {};
+  try { notes = JSON.parse(props.getProperty("winnerNotes") || "{}") || {}; } catch (err) { notes = {}; }
+  const shown = tab.getDataRange().getValues();
+  if (shown.length && String(shown[0][NOTE]).toLowerCase().trim() === "notes") {
+    shown.slice(1).forEach(function (r) {
+      const key = noteKey_(r[0], r[5], r[2], r[3]), note = String(r[NOTE] === undefined ? "" : r[NOTE]).trim();
+      if (!key) return;
+      if (note) notes[key] = note; else delete notes[key];
+    });
+  }
   const ids = Object.keys(events_());
   const byEvent = {};
   sheet_().getDataRange().getValues().slice(1).forEach(function (r) {
@@ -321,16 +336,47 @@ function winners() {
     (byEvent[ev] = byEvent[ev] || []).push(r);
   });
   const out = [WINNERS_HEADER];
+  const line = function (ev, place, r) {
+    const code = String(r[9] || ""), n = String(r[1]), sc = num_(r[2]);
+    return [ev, place, n, sc, num_(r[3]) || "", code, String(r[10] || ""), r[0], notes[noteKey_(ev, code, n, sc)] || ""];
+  };
   ids.forEach(function (ev) {
-    const seen = {};
-    (byEvent[ev] || []).sort(function (a, b) { return num_(b[2]) - num_(a[2]) || new Date(a[0]) - new Date(b[0]); })
+    const seen = {}, rows = (byEvent[ev] || []).sort(function (a, b) { return num_(b[2]) - num_(a[2]) || new Date(a[0]) - new Date(b[0]); });
+    rows.filter(house_).forEach(function (r) { out.push(line(ev, "to beat", r)); });   // scores to beat first, without a place
+    rows.filter(function (r) { return !house_(r); })
       .filter(function (r) { const c = String(r[9] || ""); if (!c) return true; if (seen[c]) return false; seen[c] = true; return true; })   // each code's best
       .slice(0, WINNERS_PER_EVENT)
-      .forEach(function (r, i) { out.push([ev, i + 1, String(r[1]), num_(r[2]), num_(r[3]), String(r[9] || ""), String(r[10] || ""), r[0]]); });
+      .forEach(function (r, i) { out.push(line(ev, i + 1, r)); });
   });
+  props.setProperty("winnerNotes", JSON.stringify(notes));
   tab.clearContents();
   tab.getRange(1, 1, out.length, WINNERS_HEADER.length).setValues(out);
   tab.setFrozenRows(1);
+}
+
+/**
+ * A score typed in by hand to beat ("house" in its proof column), like an arcade's preset high scores: it shows on its
+ * board like any other, but never takes a prize place in the winners tab. The wave can be left empty.
+ */
+function house_(r) {
+  return String(r[10] === undefined ? "" : r[10]).toLowerCase().trim() === "house";
+}
+
+/** What a note belongs to: the event and the play code (or, for a score without one, its initials and score). */
+function noteKey_(ev, code, initials, score) {
+  ev = String(ev || "").toLowerCase().trim();
+  if (!ev || ev === "event") return "";
+  return ev + "|" + (String(code || "") || "~" + String(initials || "") + "|" + String(score || ""));
+}
+
+/** Makes the winners tab warn anyone who types outside the notes column: the script rewrites the rest. */
+function guard_(tab) {
+  try {
+    if (tab.getProtections(SpreadsheetApp.ProtectionType.SHEET).length) return;
+    const p = tab.protect().setDescription("Rewritten by the script after every event score. Type only in the notes column; test scores go in the scores tab.");
+    p.setWarningOnly(true);
+    p.setUnprotectedRanges([tab.getRange(2, WINNERS_HEADER.length, 1000, 1)]);
+  } catch (err) { /* no protection: the tab still works */ }
 }
 
 /** Adds the REBELS menu to the sheet (runs when the sheet is opened). */

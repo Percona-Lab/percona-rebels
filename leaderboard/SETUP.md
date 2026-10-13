@@ -77,7 +77,7 @@ Setup creates it with a PGConf.EU row. Columns are found by their header, in any
 | prize | a line the game shows on the title and code screens, for example `WINNERS AT THE BOOTH 15:00` |
 | closes | when the board stops taking codes, for example `2026-10-23 14:45` (the sheet's time zone: File → Settings) |
 
-A **key** column from the first version of event boards isn't used any more; delete it or leave it.
+A **key** column from the first version of event boards isn't used any more: delete it.
 
 ### Play codes
 
@@ -122,14 +122,23 @@ CHAMP is the event's leader, and the prize line shows on the title screen.
 ### Winners
 
 * The **winners** tab lists each event's top 10, one line per code (its best score), with the **proof** to ask for:
-  `ticket` (they show their half of the ticket) or `email` (they show the welcome email with the code). It updates
-  after every event score; after ticking, unticking or deleting rows, use **REBELS → Update winners** in the sheet's
-  menu bar.
+  `ticket` (they show their ticket) or `email` (they show the welcome email with the code). It updates after every
+  event score; after ticking, unticking or deleting rows, use **REBELS → Update winners** in the sheet's menu bar
+  (or, in the Apps Script editor, pick **winners** next to ▶ Run and click Run).
+* **Don't type in the winners tab, except in its notes column.** The script rewrites the rest every time, and the tab
+  warns you if you try. Notes ("collected", "called at 15:00") stay with their code when the list re-sorts.
 * At prize time, read out initials and scores; whoever holds the matching ticket or email collects. Not there? The
   next one down.
 * Consider a playoff for the top few at the booth before prizes go out: a modified game can't play live in front of
   you.
 * Colleagues' scores: untick them, or let Kyle skip @percona.com contacts when looking up sign-up codes.
+
+### A score to beat
+
+Add a row to the **scores** tab by hand: time (any), initials, score, approved ticked, **event** (for example
+`pgconfeu`) and `house` in **proof**; wave can stay empty. It shows on that event's board like any score, and in the
+winners tab as "to beat", without taking a prize place. Test scores work the same way: type them in the scores tab
+with an event (leave proof empty to have them count as places), then run **winners**.
 
 ### Suspicious scores
 

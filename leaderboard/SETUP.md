@@ -38,10 +38,12 @@ The attract mode then shows **WORLD TOP 10**, and after a game you see your worl
 
 ## Running it
 
-* **Moderation:** every score goes live at once, with its **approved** box ticked. If one looks off, untick it to hide
+* **Moderation:** every score goes live at once, with its **approved** box ticked, unless it looks suspicious (see
+  Suspicious scores below). If one looks off, untick it to hide
   it, or delete the row. Changes show in the game within 20 seconds. To hold big scores back for review instead, set
   `REVIEW_ABOVE` in `Code.gs` to a number (for example 100000): scores above it then arrive unticked.
-* **What's stored:** time, initials, score, wave, seconds played, kills, game version, approved, event. Apps Script never sees
+* **What's stored:** time, initials, score, wave, seconds played, kills, game version, approved, event, play code,
+  proof (ticket or email) and why (a suspicion reason). Apps Script never sees
   players' IP addresses, and the game sends no names or ids.
 * **Anti-cheat:** every game gets a one-time ticket when it starts, and the script times the run itself: a score can't
   claim more play time than really passed, and each ticket gives one score. The numbers must also fit the game (points
@@ -55,40 +57,98 @@ The attract mode then shows **WORLD TOP 10**, and after a game you see your worl
 
 ## Event boards (booths at conferences)
 
-An event gets its own TOP 10, kept apart from the world table, plus the Percona Community sign-up as a QR code for the
-raffle. Adding an event is adding a row: no redeploy.
+An event gets its own TOP 10, kept apart from the world table. Playing it takes a **play code**, the arcade token: a
+raffle ticket number, or the code in the Percona Community welcome email. The code is how winners are found among
+hundreds of players without the game collecting any names or emails. Adding an event is adding a row: no redeploy.
 
-1. In the sheet's **events** tab (setup creates it, with a PGConf.EU example row), one row per event:
+### The events tab
 
-   | column | what it is |
-   |---|---|
-   | event | the id in the link: lowercase letters, digits and `-`, for example `pgconfeu` |
-   | name | shown in the game: `LIVE AT PGCONF.EU`, `PGCONF.EU TOP 10` (keep it under 17 characters) |
-   | open | tick box: unticked, the booth can't post any more (close it when the event ends) |
-   | key | the booth's secret; anything hard to guess, for example the 8 random characters setup made |
-   | qr | the sign-up link the game shows as a QR code (https only), for example `https://percona.community/contribute/newsletter/` |
-   | logo | an https link to the event's logo, shown next to the game on that event's page only, for example the conference site's own `logo.svg` |
+Setup creates it with a PGConf.EU row. Columns are found by their header, in any order:
 
-2. **The booth link** (the laptop or screen at the stand; keep it off slides and social posts):
-   `https://percona-lab.github.io/percona-rebels/?event=pgconfeu&key=<key>`. Games started from it post to the event
-   board, and only to it.
-3. **The public link** for that event, to share anywhere: `https://percona-lab.github.io/percona-rebels/?event=pgconfeu`.
-   It shows the event board, logo and QR code, but scores played there stay in the player's browser. Staff playing at
-   their desks don't land on the event board.
-4. **On the page:** with a wide enough window the event logo sits left of the game and a large sign-up QR code right of
-   it. In the game, the title says `LIVE AT <NAME>`, the attract loop and the end of every game show the QR code, and
-   the HUD's CHAMP is the event's leader.
-5. **Prizes:** check the top score in person at the booth. The raffle runs through the Community sign-up; the game
-   collects no emails or names.
-6. **After the event:** untick **open**. To move a score to the world table, clear its **event** cell in the scores tab.
+| column | what it is |
+|---|---|
+| event | the id in the link: lowercase letters, digits and `-`, for example `pgconfeu` |
+| name | shown in the game: `LIVE AT PGCONF.EU`, `PGCONF.EU TOP 10` (keep it under 17 characters) |
+| open | tick box: unticked, no code is accepted and nobody can start a game on the event page |
+| qr | the Percona Community sign-up link, shown as a QR code (https only) |
+| logo | an https link to the event's logo, shown next to the game on that event's page only |
+| tickets | the raffle ticket roll's numbers: `457001-458000`, several rolls with commas: `457001-458000, 460001-460500` |
+| signup codes | tick box: also accept Percona Community sign-up codes (needs the HubSpot token below) |
+| prize | a line the game shows on the title and code screens, for example `WINNERS AT THE BOOTH 15:00` |
+| closes | when the board stops taking codes, for example `2026-10-23 14:45` (the sheet's time zone: File → Settings) |
+
+A **key** column from the first version of event boards isn't used any more; delete it or leave it.
+
+### Play codes
+
+* **Raffle tickets:** buy a double roll (two halves with the same number) and type its first and last number in
+  **tickets**. At the booth, scan a badge and tear off a ticket: the stub goes in the raffle bowl, the player keeps
+  the half with the number. The script accepts numbers on the roll and nothing else.
+* **Sign-up codes:** the Percona Community welcome email (a HubSpot form) carries the contact's record id as the
+  code. The script checks with HubSpot that the contact exists, so a mistyped code is refused. Set it up once:
+  1. In HubSpot (a super admin): create a private app (**Settings → Integrations → Private apps**; in newer accounts
+     **Development → Legacy apps → Create → Private**), name `PERCONA REBELS`, scope **crm.objects.contacts.read**
+     only. Copy its access token.
+  2. In the Apps Script editor: **Project Settings → Script properties → Add**, property `HUBSPOT_TOKEN`, value the
+     token. Run **setup** once more so Google asks for permission to call HubSpot.
+  3. In the welcome email for the newsletter form: add the personalisation token **Record ID** with a line like
+     "Your PERCONA REBELS play code: 12345678". Let contacts re-enrol in the workflow, so existing subscribers who
+     fill in the form at the event get the email too.
+  4. Tick **signup codes** for the event. The game only mentions sign-up codes once the token is set.
+  The script only asks HubSpot whether a contact id exists: it reads nothing else and stores nothing about it.
+
+Every code is checked when it's entered, and the player then confirms the number on screen before it counts: a
+typo would put a high score on a code they can't claim the prize with.
+
+### Links
+
+* **Everyone:** `https://percona-lab.github.io/percona-rebels/?event=pgconfeu`. Share it anywhere: on slides, social,
+  the QR code on a sign. A phone or laptop keeps the code after the first time and plays free on it (5 on the keyboard
+  changes the code).
+* **The booth's own machine:** add `&booth`: `…/?event=pgconfeu&booth`. Every game takes a code and the machine keeps
+  none, so each player enters their own. Not a secret: it only changes what the machine remembers.
+* `&code=457123` fills a code in, for example in a link in the welcome email.
+
+### On the page
+
+With a wide enough window the event logo sits left of the game and a large sign-up QR code right of it. The title
+says `LIVE AT <NAME>` and `INSERT TOKEN`, the attract loop and the end of every game show the QR code, the HUD's
+CHAMP is the event's leader, and the prize line shows on the title screen.
+
+### Winners
+
+* The **winners** tab lists each event's top 10, one line per code (its best score), with the **proof** to ask for:
+  `ticket` (they show their half of the ticket) or `email` (they show the welcome email with the code). It updates
+  after every event score; after ticking, unticking or deleting rows, use **REBELS → Update winners** in the sheet's
+  menu bar.
+* At prize time, read out initials and scores; whoever holds the matching ticket or email collects. Not there? The
+  next one down.
+* Consider a playoff for the top few at the booth before prizes go out: a modified game can't play live in front of
+  you.
+* Colleagues' scores: untick them, or let Kyle skip @percona.com contacts when looking up sign-up codes.
+
+### Suspicious scores
+
+Scores that are possible but unlike real play arrive **unticked** (hidden), with the reason in the **why** column,
+for example `wave 10 in 150 s: 16.7 s a wave (strong players take 26 s or more)`. The lines come from the game's own
+autopilot over 300 games (champion level), with a wide margin: waves faster than 18 s on average, more than 2.2 kills
+or 1,400 points a second, more than 1,250 points a kill, 2.5 times the board's best once it has 10 scores, or two
+games running at once on one code. The player is told their score is held for review. If one looks genuine, tick it
+and run **REBELS → Update winners**. This applies to the world table too. Tune the lines with the `SUSPECT_` constants
+at the top of `Code.gs`.
+
+### After the event
+
+Untick **open** (or let **closes** do it). To move a score to the world table, clear its **event** cell in the scores
+tab. Clear the **code** cells once prizes are out if you like: they're only needed to find winners.
 
 The logo and QR link live only in the sheet, so the public repository stays free of third-party logos.
 
 ## Upgrading from the first version (no tickets)
 
 1. Paste the new `Code.gs` over the old one and **Save**.
-2. Run **setup** once. It adds the **approved** and **event** columns and the **events** tab, or the **logo** column
-   to an events tab made before it existed. Existing scores at or below `REVIEW_ABOVE` are ticked, higher ones are
+2. Run **setup** once. It adds the newer columns to the **scores** tab (approved, event, code, proof, why), creates or
+   upgrades the **events** tab and creates the **winners** tab. Existing scores at or below `REVIEW_ABOVE` are ticked, higher ones are
    left unticked for you to check.
 3. **Deploy → Manage deployments →** edit (pencil) **→ Version: New version → Deploy**. The URL stays the same.
 4. Update every copy of the game that talks to the table (GitHub Pages, and the CHAOS page at Percona). Older copies

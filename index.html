@@ -110,6 +110,18 @@ body.touch .hints { display: none; }
 .btn.go:active { transform: translateY(3px); box-shadow: 0 2px 0 #3d2494; }
 .pilot .keys { margin: 0; font-size: 16px; color: var(--text-faint); }
 @media (prefers-reduced-motion: reduce) { .pc.on { transform: none; } }
+
+/* play code, at events: a raffle ticket number or the code from the Percona Community welcome email */
+.playcode .box { width: min(480px, 94vw); }
+.playcode input { font: 30px var(--font-pixel); letter-spacing: 4px; text-align: center; padding: 16px 12px; }
+.playcode .pc-msg { min-height: 1.3em; margin: 0; font-size: 20px; color: var(--accent-2); }
+.playcode .pc-prize { margin: 0; font-family: var(--font-pixel); font-size: 10px; line-height: 1.6; color: var(--accent-3); }
+.playcode .pc-prize:empty { display: none; }
+.playcode .pfoot { justify-content: flex-end; }
+.playcode .btn:disabled { opacity: .5; }
+.playcode input.sure { border-color: var(--accent-2); color: var(--accent-2); background: #1d1a10; }
+.playcode .pc-world { align-self: flex-start; text-decoration: none; color: var(--accent-2); }
+.playcode .pc-world[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -136,6 +148,22 @@ body.touch .hints { display: none; }
 </aside>
 
 <p class="hints"><kbd>←</kbd><kbd>→</kbd> / <kbd>WASD</kbd> move · <kbd>Space</kbd> fire · <kbd>Enter</kbd> coin + start · <kbd>P</kbd> / <kbd>Esc</kbd> pause · <kbd>M</kbd> sound · <kbd>C</kbd> CRT · gamepad and touch work too</p>
+
+<section class="pilot playcode" id="playcode" hidden aria-label="Insert token: your play code">
+  <div class="box">
+    <h2>INSERT TOKEN</h2>
+    <p class="sub" id="pc-sub"></p>
+    <input id="pc-in" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="20" placeholder="0000000" aria-label="Play code">
+    <p class="pc-msg" id="pc-msg" role="status" aria-live="polite"></p>
+    <p class="pc-prize" id="pc-prize"></p>
+    <a class="btn pc-world" id="pc-world" hidden>Play the world game instead ▶</a>
+    <div class="pfoot">
+      <button type="button" class="btn" id="pc-back">◀ Back</button>
+      <button type="button" class="btn go" id="pc-go">INSERT ▶</button>
+    </div>
+    <p class="keys" id="pc-how"></p>
+  </div>
+</section>
 
 <script>window.REBELS_STANDALONE=true;window.REBELS_ASSETS={};window.REBELS_BACK_NAME="percona.com";window.REBELS_PUBLIC=true;window.REBELS_LEADERBOARD="https://script.google.com/macros/s/AKfycbwtEBTAOFm1UpEh0H80ZuPRmxcjf3CAXliA7P28Bb83FgYcgBWYnwdFpfhSx85f4mxAZw/exec";window.REBELS_SW="sw.js";window.REBELS_MANIFEST_URL="manifest.webmanifest";</script>
 <script src="rebels.js"></script>

@@ -546,7 +546,7 @@
     G.scores = s.filter((x) => x && typeof x.s === "number").sort((a, b) => b.s - a.s).slice(0, 10);
   }
   // the record and who holds it: the world table, this browser's table, or you, mid-game, once you pass it.
-  // At an event only the event board counts: its champion is the one the booth hands the prize to.
+  // At an event only the event board counts: its champion is the one who collects the prize.
   function hiEntry() {
     const pool = World.evId && World.status === "ok" ? [World.top?.[0]] : [World.top?.[0], G.scores[0]];
     const best = pool.filter(Boolean).reduce((a, b) => (b.s > a.s ? b : a), { s: 0, n: "" });
@@ -682,17 +682,19 @@
      ticket. Big scores wait for a human check before they show. Only initials, score, wave, play time and kill count
      are sent. */
   const LEADERBOARD_URL = String(window.REBELS_LEADERBOARD || "");
-  // Event boards: ?event=<id> shows that event's TOP 10 instead of the world's. The booth's link adds &key=<key>; only
-  // games started with the key post to the event board. Without it, the event board is view-only and scores stay local.
+  // Event boards: ?event=<id> shows that event's TOP 10 instead of the world's, and playing takes a play code (a raffle
+  // ticket number, or the code in the Percona Community welcome email) as the token; &code= fills it in. A device keeps
+  // the code and plays free on it; the booth's shared machine adds &booth, so every player enters their own code.
   const EVENT = (() => {
     const q = new URLSearchParams(location.search), id = String(q.get("event") || "").toLowerCase().trim();
-    return /^[a-z0-9-]{1,32}$/.test(id) ? { id, key: String(q.get("key") || "") } : null;
+    return /^[a-z0-9-]{1,32}$/.test(id) ? { id, code: String(q.get("code") || "").replace(/[^0-9]/g, "").slice(0, 15), booth: q.has("booth") } : null;
   })();
   const World = {
     top: null, status: LEADERBOARD_URL ? "loading" : "off", rank: null, sending: false, note: "", loadedAt: 0, ticket: null,
-    event: null, evId: EVENT ? EVENT.id : null,
+    event: null, evId: EVENT ? EVENT.id : null, code: null, proof: "",
     get on() { return !!LEADERBOARD_URL; },
-    get booth() { return !!(this.evId && EVENT && EVENT.key); },
+    get competing() { return !!(this.evId && this.code); },               // this game counts for the event board
+    get prize() { return this.evId && this.event ? String(this.event.prize || "").toUpperCase().slice(0, 40) : ""; },
     get title() { return this.evId ? String((this.event && this.event.name) || this.evId).toUpperCase().slice(0, 16) : "WORLD"; },
     get qr() { return this.evId && this.event && /^https:\/\//.test(this.event.qr || "") ? this.event.qr : ""; },
     get table() { return this.evId ? "EVENT TABLE" : "WORLD TABLE"; },
@@ -718,31 +720,39 @@
         if (!d || !d.ok) throw new Error("bad reply");
         if (this.evId && !(d.event && typeof d.event === "object")) throw new Error("no events here");   // a script from before events
         this.top = this.clean(d.top); this.status = "ok";
-        if (this.evId) { this.event = d.event && typeof d.event === "object" ? { name: String(d.event.name || ""), qr: String(d.event.qr || ""), logo: String(d.event.logo || ""), open: !!d.event.open } : null; EventPanels.show(); }
+        if (this.evId) { this.event = d.event && typeof d.event === "object" ? { name: String(d.event.name || ""), qr: String(d.event.qr || ""), logo: String(d.event.logo || ""), open: !!d.event.open, prize: String(d.event.prize || ""), codes: { tickets: !!(d.event.codes && d.event.codes.tickets), signup: !!(d.event.codes && d.event.codes.signup) } } : null; EventPanels.show(); }
       }
       catch { if (this.status !== "ok") this.status = "offline"; }
     },
-    async startRun() {
-      this.ticket = null;
-      if (!this.on) return;
-      if (this.evId && !this.booth) return;                                  // event spectators: scores stay local
+    // a ticket for the game about to start. At events, with a play code: resolves to "ok", "code" (not valid), "closed",
+    // or "offline". Without a code at an event the game is just for fun and gets no ticket.
+    async startRun(code = null) {
+      this.ticket = null; this.code = null; this.proof = "";
+      if (!this.on || (this.evId && !code)) return "fun";
       try {
-        const d = await this.call(this.evId ? { action: "start", event: this.evId, key: EVENT.key } : { action: "start" });
-        if (d && d.ok && d.ticket) this.ticket = String(d.ticket);
-        else if (d && (d.error === "key" || d.error === "closed")) this.ticketError = d.error;
-      } catch { /* no ticket: the score stays local */ }
+        const d = await this.call(this.evId ? { action: "start", event: this.evId, code } : { action: "start" });
+        if (d && d.ok && d.ticket) { this.ticket = String(d.ticket); if (this.evId) { this.code = code; this.proof = String(d.proof || ""); } return "ok"; }
+        return d && (d.error === "code" || d.error === "closed") ? d.error : "offline";
+      } catch { return "offline"; }                                          // no ticket: the score stays local
     },
-    qualifies(score) { return this.on && this.status === "ok" && !(this.evId && !this.booth) && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
+    // is this play code good for this event right now? "ok", "code", "closed" or "offline"
+    async check(code) {
+      try {
+        const d = await this.call({ action: "start", event: this.evId, code });
+        return d && d.ok ? "ok" : d && (d.error === "code" || d.error === "closed") ? d.error : "offline";
+      } catch { return "offline"; }
+    },
+    qualifies(score) { return this.on && this.status === "ok" && !(this.evId && !this.competing) && score > 0 && (this.top.length < 10 || score > this.top[this.top.length - 1].s); },
     async submit(entry) {
       if (!this.on || this.status === "off") return;
-      if (this.evId && !this.booth) { this.note = "EVENT SCORES ARE RECORDED AT THE BOOTH"; return; }
+      if (this.evId && !this.competing) { this.note = "NO PLAY CODE: SAVED HERE, NOT ON THE BOARD"; return; }
       if (this.evId && !this.event) { this.note = "EVENT TABLE OFFLINE. SAVED HERE."; return; }   // never confirmed by the server: never post
-      if (this.evId && !this.ticket) { this.note = this.ticketError === "closed" ? "THIS EVENT IS CLOSED. SAVED HERE." : "THIS BOOTH LINK ISN'T VALID. SAVED HERE."; return; }
+      if (this.evId && !this.ticket) { this.note = "COULDN'T VERIFY THIS RUN. SAVED HERE."; return; }
       this.sending = true; this.rank = null; this.note = `SENDING TO THE ${this.table}...`;
       const ticket = this.ticket; this.ticket = null;
       try {
         const d = await this.call({ action: "submit" }, { ...entry, x: ticket || "" });
-        if (d && d.ok && d.pending) { this.top = this.clean(d.top); this.status = "ok"; this.note = "BIG SCORE! IT SHOWS ONCE A HUMAN CHECKS IT"; }
+        if (d && d.ok && d.pending) { this.top = this.clean(d.top); this.status = "ok"; this.note = "SCORE HELD FOR REVIEW. IT SHOWS ONCE A HUMAN CHECKS IT"; }
         else if (d && d.ok) { this.top = this.clean(d.top); this.status = "ok"; this.rank = d.rank || null; this.note = d.rank ? `${this.title} RANK #${d.rank}` : "SENT TO THE TABLE"; }
         else this.note = d && d.error === "ticket" ? "COULDN'T VERIFY THIS RUN. SAVED HERE." : d && d.error === "busy" ? `${this.table} BUSY. SAVED HERE.` : `THE ${this.table} SAID NO`;
       } catch { this.note = `${this.table} OFFLINE. SAVED HERE.`; }
@@ -756,7 +766,8 @@
     shown: "",
     show() {
       const logo = World.logo, qr = World.qr, name = World.event ? World.event.name || World.evId : "";
-      const id = [name, logo, qr].join(" ");
+      const signup = !!(World.event && World.event.codes && World.event.codes.signup);
+      const id = [name, logo, qr, signup].join(" ");
       if (id === this.shown) return; this.shown = id;
       const left = $("#event-logo"), right = $("#event-qr");
       if (!left || !right) return;
@@ -772,6 +783,7 @@
         const c = QR.image(qr, 8), box = right.querySelector(".ev-code");
         if (c) { c.setAttribute("role", "img"); c.setAttribute("aria-label", "QR code for " + qr); box.replaceChildren(c); }
         right.querySelector(".ev-url").textContent = qr.replace(/^https:\/\//, "").replace(/\/$/, "");
+        right.querySelector(".ev-name").textContent = signup ? "AND GET YOUR PLAY CODE" : "AND ENTER THE RAFFLE";
       }
       document.body.classList.toggle("event", !!name);
     },
@@ -1423,7 +1435,7 @@
     if (w.fx.pxc > 0) timer(P("pxc").label, w.fx.pxc, P("pxc").duration, P("pxc").color);
     if (w.fx.op > 0) timer(P("operator").label, w.fx.op, P("operator").duration, P("operator").color);
     if (w.fx.shield) timer(P("xtrabackup").label, 1, 1, P("xtrabackup").color);
-    if (w.demo) { text("DEMO PLAY", W / 2, 26, C.lilac, { small: true, align: "center" }); if (blink(2)) text(G.credits ? "PRESS START" : "INSERT COIN", W / 2, 206, C.yellow, { align: "center", shadow: C.ink }); }
+    if (w.demo) { text("DEMO PLAY", W / 2, 26, C.lilac, { small: true, align: "center" }); if (blink(2)) text(G.credits || Tokens.free ? "PRESS START" : atEvent() ? "INSERT TOKEN" : "INSERT COIN", W / 2, 206, C.yellow, { align: "center", shadow: C.ink }); }
   }
 
   /* ================================================================== attract mode */
@@ -1451,14 +1463,16 @@
     text("FREEDOM FIGHTERS FOR OPEN SOURCE", W / 2, 124, C.lilac, { small: true, align: "center" });
     text("OPEN SOURCE STRIKES BACK", W / 2, 132, C.faint, { small: true, align: "center" });
     if (World.evId && World.event) text(`LIVE AT ${World.title}`, W / 2, 140, C.teal, { small: true, align: "center" });
-    if (G.credits) { if (blink(2)) text("PRESS START", W / 2, 150, C.yellow, { align: "center" }); text("1 REBEL ONLY", W / 2, 164, C.white, { small: true, align: "center" }); }
-    else if (blink(1.6)) text("INSERT COIN", W / 2, 150, C.yellow, { align: "center" });
-    const lines = ["ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", PUBLIC ? "P OR ESC PAUSE   M SOUND   C CRT" : `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
+    const event = atEvent();
+    if (G.credits || Tokens.free) { if (blink(2)) text("PRESS START", W / 2, 150, C.yellow, { align: "center" }); text(Tokens.free ? `FREE PLAY ON CODE ${Tokens.saved}` : "1 REBEL ONLY", W / 2, 164, C.white, { small: true, align: "center" }); }
+    else if (blink(1.6)) text(event ? "INSERT TOKEN" : "INSERT COIN", W / 2, 150, C.yellow, { align: "center" });
+    const lines = [Tokens.free ? (document.body.classList.contains("touch") ? "TAP: START" : "ENTER / SPACE: START   5: CHANGE CODE") : event ? "ENTER / TAP: TOKEN (YOUR PLAY CODE), THEN START" : "ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", PUBLIC ? "P OR ESC PAUSE   M SOUND   C CRT" : `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
     lines.forEach((l, i) => text(l, W / 2, 180 + i * 9, C.dim, { small: true, align: "center" }));
     if (Pilot.ready) text("CHOOSE YOUR PILOT FROM THE ARCADE ROSTER", W / 2, 214, C.teal, { small: true, align: "center" });
-    if (t > 0.1) text(`BONUS SHIP EVERY ${RULES.extraLifeEvery.toLocaleString("en-US")} PTS`, W / 2, 228, C.lilac, { small: true, align: "center" });
+    if (World.prize) text(World.prize, W / 2, 228, C.yellow, { small: true, align: "center" });
+    else if (t > 0.1) text(`BONUS SHIP EVERY ${RULES.extraLifeEvery.toLocaleString("en-US")} PTS`, W / 2, 228, C.lilac, { small: true, align: "center" });
     text(`(C) ${new Date().getFullYear()} PERCONA   THE WAY IS OPEN`, 6, H - 8, C.faint, { small: true });
-    text(`CREDIT ${G.credits}`, W - 6, H - 8, C.white, { small: true, align: "right" });
+    text(Tokens.free ? "FREE PLAY" : `CREDIT ${G.credits}`, W - 6, H - 8, C.white, { small: true, align: "right" });
   }
   function renderEnemyTable() {
     const t = G.attract.t;
@@ -1514,16 +1528,34 @@
     g.fillStyle = C.purple; g.fillRect(Math.round((W - img.width) / 2) - 2, y - 2, img.width + 4, img.height + 4);
     g.drawImage(img, Math.round((W - img.width) / 2), y);
     text("SCAN TO JOIN THE PERCONA COMMUNITY", W / 2, 192, C.teal, { small: true, align: "center" });
-    if (blink(1.2)) text("AND ENTER THE RAFFLE", W / 2, 201, C.yellow, { small: true, align: "center" });
+    if (blink(1.2)) text(World.event && World.event.codes && World.event.codes.signup ? "AND GET YOUR PLAY CODE" : "AND ENTER THE RAFFLE", W / 2, 201, C.yellow, { small: true, align: "center" });
     text(World.qr.replace(/^https:\/\//, "").replace(/\/$/, "").slice(0, 52), W / 2, 214, C.dim, { small: true, align: "center" });
-    if (World.event && World.event.name) text("FIND US AT THE PERCONA BOOTH", W / 2, 228, C.lilac, { small: true, align: "center" });
+    text(World.prize || "FIND US AT THE PERCONA BOOTH", W / 2, 228, World.prize ? C.yellow : C.lilac, { small: true, align: "center" });
   }
 
   /* ================================================================== game flow */
-  function insertCoin() { G.credits = Math.min(9, G.credits + 1); AU.coin(); if (ATTRACT[G.attract.i][0] !== "title") setAttract(0); }
+  /* At an event a play code is the token: no code, no game. Your own phone or laptop keeps the code and plays free on it
+     from then on (5 changes it). The booth's shared machine (&booth) takes one code per credit and keeps none, so every
+     player enters their own. */
+  const atEvent = () => !!(World.on && World.evId && World.event);
+  const Tokens = {
+    queue: [],                                                                // codes inserted on a shared machine, one per credit
+    get saved() { return PlayCode.personal && World.evId ? String(store.get("code." + World.evId, "") || "") : ""; },
+    get free() { return atEvent() && !!this.saved; },
+    forget() { if (World.evId) store.set("code." + World.evId, ""); },
+  };
+  function insertCoin(change = false) {
+    if (atEvent()) { if (Tokens.free && !change) pressStart(); else PlayCode.open(); return; }
+    addCredit();
+  }
+  function addCredit(code = null) {
+    G.credits = Math.min(9, G.credits + 1); if (code) Tokens.queue.push(code);
+    AU.coin(); if (ATTRACT[G.attract.i][0] !== "title") setAttract(0);
+  }
   function pressStart() {
-    if (G.credits <= 0) { insertCoin(); return; }
-    G.credits--;
+    if (Tokens.free) G.nextCode = Tokens.saved;
+    else if (G.credits <= 0) { insertCoin(); return; }
+    else { G.credits--; G.nextCode = atEvent() ? Tokens.queue.shift() || null : null; }
     if (Pilot.ready) Pilot.open(); else beginGame();
   }
   /* ================================================================== suspend and resume
@@ -1544,7 +1576,7 @@
           if (v.frames && v.id) return { $t: v.id };
           return v;
         });
-        store.set(this.key, { at: Date.now(), world: json, ticket: World.ticket || null });
+        store.set(this.key, { at: Date.now(), world: json, ticket: World.ticket || null, code: World.code || null, proof: World.proof || "" });
       } catch { /* storage full or blocked: nothing to do */ }
     },
     restore() {
@@ -1560,7 +1592,7 @@
       });
       if (missing || !w || !w.p) { this.clear(); return false; }            // the line-up changed since: start fresh
       w.parts = []; w.pops = []; w.banner = null; w.flash = 0; w.shake = 0;          // leave the moment-to-moment effects behind
-      G.world = w; G.mode = "game"; G.over = null; World.ticket = saved.ticket || null;
+      G.world = w; G.mode = "game"; G.over = null; World.ticket = saved.ticket || null; World.code = saved.code || null; World.proof = saved.proof || "";
       setPause(true); G.resumed = true;
       return true;
     },
@@ -1572,7 +1604,12 @@
   function beginGame() {
     Suspend.clear();
     G.mode = "game"; G.paused = false; G.pauseEsc = false; G.demo = null; G.over = null;
-    G.world = newWorld(false); AU.start(); startWave(G.world); World.startRun();
+    G.world = newWorld(false); AU.start(); startWave(G.world);
+    const code = G.nextCode; G.nextCode = null;
+    World.startRun(code).then((r) => {
+      // a phone's code that stopped working (the board closed, or the code was withdrawn): ask for one next time
+      if ((r === "code" || r === "closed") && code && code === Tokens.saved) { Tokens.forget(); toast(r === "closed" ? "THE BOARD IS CLOSED" : "THAT CODE STOPPED WORKING"); }
+    });
   }
   function toGameOver() {
     const w = G.world; Music.stop(); AU.over(); Suspend.clear();
@@ -1607,6 +1644,7 @@
     const rows = [["SCORE", pad(o.score)], ["WAVE", pad(o.wave, 2)], ["LOCK-INS BROKEN", String(o.kills)], ["ACCURACY", o.acc + "%"]];
     rows.forEach(([k, v], i) => { text(k, 28, 112 + i * 14, C.lilac); text(v, W - 28, 112 + i * 14, C.white, { align: "right" }); });
     text("YOUR DATA IS STILL YOURS.", W / 2, 180, C.teal, { small: true, align: "center" });
+    if (World.competing) text(`PLAYED ON CODE ${World.code}`, W / 2, 200, C.lilac, { small: true, align: "center" });
     text("THE WAY IS OPEN.", W / 2, 189, C.teal, { small: true, align: "center" });
     if (o.t > 1.5 && blink(2)) text("PRESS START", W / 2, 214, C.yellow, { align: "center" });
   }
@@ -1626,6 +1664,7 @@
     text(`SCORE ${pad(G.over.score)}`, W / 2, 160, C.lilac, { align: "center" });
     text("UP/DOWN LETTER   LEFT/RIGHT MOVE   FIRE OK", W / 2, 180, C.dim, { small: true, align: "center" });
     text("OR JUST TYPE THEM", W / 2, 188, C.dim, { small: true, align: "center" });
+    if (World.competing) text(`FOR CODE ${World.code}`, W / 2, 171, C.yellow, { small: true, align: "center" });
     g.fillStyle = C.purple; g.fillRect(W / 2 - 24, 204, 48, 16); text("OK", W / 2, 208, C.yellow, { align: "center" });
   }
   function renderPause() {
@@ -1650,11 +1689,12 @@
   const CHEAT_KEYS = { ArrowUp: "U", ArrowDown: "D", ArrowLeft: "L", ArrowRight: "R", b: "B", B: "B", a: "A", A: "A" };   // inputs for the secret codes
   addEventListener("keydown", (e) => {
     AU.unlock();
-    if (G.mode !== "pilot" && G.mode !== "initials" && !e.repeat) {
+    if (G.mode !== "pilot" && G.mode !== "playcode" && G.mode !== "initials" && !e.repeat) {
       if (Cheat.armed && /^[a-z]$/i.test(e.key)) { Cheat.feed(e.key.toUpperCase()); e.preventDefault(); return; }   // not case sensitive
       if (CHEAT_KEYS[e.key]) Cheat.feed(CHEAT_KEYS[e.key]);
     }
     if (G.mode === "pilot") { Pilot.onKey(e); return; }
+    if (G.mode === "playcode") { PlayCode.onKey(e); return; }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (G.mode === "initials") {
       e.preventDefault();
@@ -1690,7 +1730,7 @@
     }
     for (const a of IN.pad) if (!IN.padPrev.has(a)) {
       AU.unlock();
-      const codeMode = G.mode !== "pilot" && G.mode !== "initials";
+      const codeMode = G.mode !== "pilot" && G.mode !== "playcode" && G.mode !== "initials";
       if (codeMode && Cheat.armed && (a === "back" || a === "start")) { Cheat.feed(a === "back" ? "SELECT" : "START"); continue; }
       IN.pressed.add(a);
       const t = { up: "U", down: "D", left: "L", right: "R", cancel: "B", fire: "A" }[a];
@@ -1713,7 +1753,7 @@
     } else if (G.mode === "initials") {
       for (let i = 0; i < 3; i++) { const cx = W / 2 + (i - 1) * 32; if (Math.abs(L.x - cx) < 15 && L.y > 96 && L.y < 156) { G.ini.pos = i; Ini.cycle(L.y < 126 ? 1 : -1); return; } }
       if (Math.abs(L.x - W / 2) < 28 && L.y > 200 && L.y < 224) Ini.submit();
-    } else if (G.mode !== "pilot") IN.pressed.add("start");
+    } else if (G.mode !== "pilot" && G.mode !== "playcode") IN.pressed.add("start");
   });
   addEventListener("pointermove", (e) => {
     if (e.pointerId !== IN.touchId) return;
@@ -1740,7 +1780,7 @@
     if (pressed("crt")) toggleCrt();
     const go = pressed("start") || pressed("fire");
     switch (G.mode) {
-      case "attract": if (pressed("coin")) insertCoin(); else if (go) pressStart(); if (pressed("back") && !PUBLIC) leave(); break;
+      case "attract": if (pressed("coin")) insertCoin(true); else if (go) pressStart(); if (pressed("back") && !PUBLIC) leave(); break;
       case "game":
         if (pressed("back") && PUBLIC) setPause(!G.paused);
         else if (pressed("back")) { if (G.paused && G.pauseEsc) leave(); else { if (!G.paused) setPause(true); G.pauseEsc = true; } }
@@ -1754,6 +1794,7 @@
       case "pilot":
         if (pressed("left")) Pilot.move(-1); if (pressed("right")) Pilot.move(1); if (pressed("up")) Pilot.move(-Pilot.cols()); if (pressed("down")) Pilot.move(Pilot.cols());
         if (pressed("fire") || pressed("start")) Pilot.launch(); if (pressed("cancel") || pressed("back")) Pilot.cancel(); break;
+      case "playcode": if (pressed("start")) PlayCode.play(); if (pressed("back")) PlayCode.cancel(); break;
     }
     IN.pressed.clear();
   }
@@ -1818,13 +1859,86 @@
     move(d) { if (!this.shown.length) return; this.focus = clamp(this.focus + d, 0, this.shown.length - 1); this.mark(); AU.blip(620); },
     launch() { const p = this.shown[this.focus]; if (!p) { this.guest(); return; } choosePilot(p); store.set("pilot", p.id); this.close(); beginGame(); },
     guest() { G.pilot = null; store.set("pilot", null); buildShip(C.white); this.close(); beginGame(); },
-    cancel() { this.close(); G.credits++; G.mode = "attract"; setAttract(0); AU.blip(400); },
+    cancel() {
+      this.close();
+      if (!Tokens.free) { G.credits++; if (G.nextCode) Tokens.queue.unshift(G.nextCode); }
+      G.nextCode = null; G.mode = "attract"; setAttract(0); AU.blip(400);
+    },
     onKey(e) {
       const k = e.key;
       if (k === "ArrowRight" || k === "ArrowLeft" || k === "ArrowDown" || k === "ArrowUp") { e.preventDefault(); this.move(k === "ArrowRight" ? 1 : k === "ArrowLeft" ? -1 : (k === "ArrowDown" ? 1 : -1) * this.cols()); }
       else if (k === "Enter") { e.preventDefault(); this.launch(); }
       else if (k === "Escape") { e.preventDefault(); if (this.q.value) { this.q.value = ""; this.render(); } else this.cancel(); }
       else if (k.length === 1 && document.activeElement !== this.q && !e.metaKey && !e.ctrlKey) this.q.focus();
+    },
+  };
+  /* ================================================================== play code (event boards)
+     At an event the play code is the token: a raffle ticket number or the code from the Percona Community welcome
+     email. The script checks it (the ticket roll, or HubSpot), then the player confirms the number: a typo would put a
+     high score on a code they can't claim the prize with. */
+  const PlayCode = {
+    el: $("#playcode"), input: $("#pc-in"), msg: $("#pc-msg"), go: $("#pc-go"), back: $("#pc-back"), openedAt: 0, busy: false, sure: "",
+    get personal() { return !(EVENT && EVENT.booth); },                      // your own device, not the booth's
+    init() {
+      if (!this.el) return;
+      this.go.addEventListener("click", () => performance.now() - this.openedAt > 450 && this.play());
+      this.back.addEventListener("click", () => performance.now() - this.openedAt > 450 && this.cancel());
+      this.input.addEventListener("input", () => { this.input.value = this.input.value.replace(/[^0-9 -]/g, "").slice(0, 20); this.say(""); });
+      const plain = new URL(location.href); ["event", "code", "booth"].forEach((k) => plain.searchParams.delete(k));
+      $("#pc-world").href = plain.href;
+    },
+    open() {
+      if (!this.el) return;
+      const c = (World.event && World.event.codes) || {};
+      G.mode = "playcode"; this.el.hidden = false; this.openedAt = performance.now(); this.busy = false;
+      $("#pc-sub").textContent = c.tickets && c.signup ? "Your raffle ticket number, or the code in your Percona Community welcome email."
+        : c.tickets ? "The number on your raffle ticket." : c.signup ? "The code in your Percona Community welcome email." : "This event isn't taking codes yet.";
+      $("#pc-how").textContent = (c.signup ? "No code yet? Scan the QR code to join the Percona Community: it's in the welcome email. " : c.tickets ? "No ticket yet? Get one at the Percona booth. " : "")
+        + (this.personal ? "This device keeps your code: one code, free play." : "One code, one game.");
+      $("#pc-prize").textContent = World.prize;
+      this.input.value = EVENT.code || Tokens.saved || "";
+      this.edit();
+      if (World.event && !World.event.open) this.closed();
+    },
+    // typing the code
+    edit() {
+      this.sure = ""; this.input.readOnly = false; this.input.classList.remove("sure"); $("#pc-world").hidden = true;
+      this.go.textContent = "CHECK ▶"; this.back.textContent = "◀ Back"; this.go.disabled = false; this.say("");
+      if (!("ontouchstart" in window)) this.input.focus();
+    },
+    // the script said yes: the player confirms the number before it counts
+    confirm(code) {
+      this.sure = code; this.input.value = code; this.input.readOnly = true; this.input.classList.add("sure"); this.input.blur();
+      this.go.textContent = "YES, INSERT ▶"; this.back.textContent = "◀ Fix it";
+      this.say("Is that exactly your number? Prizes go to the ticket or email that matches it.");
+    },
+    closed() { this.say("The board is closed."); this.go.disabled = true; $("#pc-world").hidden = false; },
+    close() { this.el.hidden = true; this.input.blur(); G.mode = "attract"; setAttract(0); },
+    say(m) { this.msg.textContent = m; },
+    async play() {
+      if (this.busy || this.go.disabled) return;
+      if (this.sure) { this.insert(this.sure); return; }
+      const code = this.input.value.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
+      if (!code) { this.say("Type your code first."); this.input.focus(); return; }
+      this.busy = true; this.go.disabled = true; this.say("Checking...");
+      const r = await World.check(code);
+      this.busy = false; this.go.disabled = false;
+      if (G.mode !== "playcode") return;                                       // backed out while checking
+      if (r === "ok") { this.confirm(code); AU.blip(900); return; }
+      AU.blip(300);
+      if (r === "closed") this.closed();
+      else this.say(r === "code" ? "That code isn't valid. Check the number and try again." : "Can't check codes right now. Try again in a moment.");
+    },
+    insert(code) {
+      this.close();
+      if (this.personal) { store.set("code." + World.evId, code); Tokens.queue.length = 0; AU.coin(); toast("FREE PLAY ON YOUR CODE"); }
+      else { addCredit(code); toast("TOKEN ACCEPTED"); }
+    },
+    cancel() { if (this.sure) { this.edit(); return; } this.close(); AU.blip(400); },
+    onKey(e) {
+      if (e.key === "Enter") { e.preventDefault(); this.play(); }
+      else if (e.key === "Escape") { e.preventDefault(); this.cancel(); }
+      else if (!this.sure && document.activeElement !== this.input && /^[0-9]$/.test(e.key)) this.input.focus();
     },
   };
   function choosePilot(p) {
@@ -1839,7 +1953,7 @@
     G.t += dt; pollPad(); handleInput(); updateStars(dt);
     if (G.toast && (G.toast.t += dt) > 1.4) G.toast = null;
     switch (G.mode) {
-      case "attract": case "pilot": updateAttract(dt); break;
+      case "attract": case "pilot": case "playcode": updateAttract(dt); break;
       case "game": if (!G.paused) { stepWorld(G.world, dt, control()); if (G.world.phase === "over" && G.world.phaseT > 2.6) toGameOver(); } break;
       case "gameover": G.over.t += dt; if (G.world) stepWorld(G.world, dt, {}); if (G.over.t > 7) finishGameOver(); break;
       case "initials": G.ini.t += dt; if (G.ini.t > 45) Ini.submit(); break;
@@ -1849,9 +1963,9 @@
   function render() {
     g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
     drawStars();
-    if (G.mode === "attract" || G.mode === "pilot") {
+    if (G.mode === "attract" || G.mode === "pilot" || G.mode === "playcode") {
       const name = ATTRACT[G.attract.i][0];
-      if (name === "title" || G.mode === "pilot") renderTitle(); else if (name === "enemies") renderEnemyTable(); else if (name === "powerups") renderPowerTable();
+      if (name === "title" || G.mode === "pilot" || G.mode === "playcode") renderTitle(); else if (name === "enemies") renderEnemyTable(); else if (name === "powerups") renderPowerTable();
       else if (name === "scores") renderScoreTable(-1); else if (name === "world") renderScoreTable(-1, World.top, `${World.title} TOP 10`);
       else if (name === "raffle") renderRaffle();
       else if (name === "demo" && G.demo) renderWorld(G.demo);
@@ -1872,7 +1986,7 @@
     const dt = last ? Math.min(0.25, (ts - last) / 1000) : STEP; last = ts; acc += dt;
     let n = 0; while (acc >= STEP && n < 8) { update(STEP); acc -= STEP; n++; }
     if (n === 8) acc = 0;
-    if (G.mode !== "pilot" || !(frameNo++ % 4)) render();        // behind the pilot picker the (blurred) title only needs a slow refresh
+    if ((G.mode !== "pilot" && G.mode !== "playcode") || !(frameNo++ % 4)) render();        // behind the pilot picker the (blurred) title only needs a slow refresh
     requestAnimationFrame(frame);
   }
 
@@ -1885,7 +1999,7 @@
     const savedSupport = store.get("support", "");
     G.support = savedSupport === true ? "advanced" : ["advanced", "premium"].includes(savedSupport) ? savedSupport : "";
     G.ops = !!store.get("ops", false);
-    loadLocalSprites(); Pilot.load(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
+    loadLocalSprites(); Pilot.load(); PlayCode.init(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
     // the app manifest (installing to the home screen or Dock). Linked from here, not the HTML, because browsers refuse
     // manifest files on file:// pages. Single-file builds carry it inline with the page's own address as start URL.
     if (!window.REBELS_MANIFEST && /^https?:$/.test(location.protocol)) {
@@ -1910,6 +2024,17 @@
       give(id) { const P = POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
       icon(size, maskable) { return makeIcon(size, maskable).toDataURL("image/png"); },
       warpTo(n) { if (G.world) { G.world.wave = Math.max(0, n - 1); startWave(G.world); } },
+      // plays one whole game with the autopilot as fast as the CPU allows (calibrating the table's suspicion rules)
+      sim(maxSecs = 1800, invincible = false) {
+        const ops = G.ops, w = newWorld(false), waves = []; G.ops = invincible; startWave(w);
+        let wave = w.wave, from = 0;
+        while (w.phase !== "over" && w.t < maxSecs) {
+          stepWorld(w, STEP, aiControl(w));
+          if (w.wave !== wave) { waves.push(Math.round((w.t - from) * 10) / 10); wave = w.wave; from = w.t; }
+        }
+        G.ops = ops; Music.stop();
+        return { s: w.score, w: w.wave, t: Math.round(w.t), k: w.kills, waves };
+      },
     };
   }
   // wait for the stylesheet (and its @font-face rules) before asking for Press Start 2P; fall back after 2.5 s

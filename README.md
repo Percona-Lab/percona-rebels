@@ -75,7 +75,8 @@ shake, flashes and warp streaks.
 Everyone playing on GitHub Pages shares one **WORLD TOP 10**. It lives in a Google Sheet behind a small Google Apps
 Script web app, [`leaderboard/Code.gs`](leaderboard/Code.gs). Every game gets a one-time ticket when it starts and
 the script times the run itself, so a score can't claim more play time than really passed. The numbers have to fit
-the game's rules, and anything that still looks off gets removed by a human.
+the game's rules, runs that look unlike real play are held for a human to check (with the reason noted), and anything
+else that looks off gets removed by a human.
 
 Yes, you can read the code and, with enough patience, fool it. It's a game about open source: have fun with the code,
 but faked scores get removed.
@@ -84,11 +85,12 @@ but faked scores get removed.
   a game. Nothing else: no names, no ids, and Apps Script never sees your IP address.
 * **Your own table** stays in your browser's `localStorage`, and the game falls back to it if the world table can't be
   reached.
-* **At events:** a conference booth gets its own TOP 10 with `?event=<id>` in the link (for example
+* **At events:** a conference gets its own TOP 10 with `?event=<id>` in the link (for example
   [`?event=pgconfeu`](https://percona-lab.github.io/percona-rebels/?event=pgconfeu)), kept apart from the world table.
-  Only the booth's own link posts to it; elsewhere the event board is view-only. The page shows the event's logo and a
-  QR code for the [Percona Community](https://percona.community/) sign-up, which is also how you enter the booth
-  raffle. The game itself still collects nothing but initials and the numbers above.
+  There your token is a play code: a raffle ticket number from the Percona booth, or the code in the
+  [Percona Community](https://percona.community/) welcome email (scan the QR code on the page to sign up). Your
+  device keeps it, so you only type it once. The code is how the winners are found and sent with each event score;
+  the game still collects no names or emails.
 * **Running your own copy:** set up the script with [`leaderboard/SETUP.md`](leaderboard/SETUP.md) and put its URL in
   `window.REBELS_LEADERBOARD` in `index.html`, or remove that line to play offline only.
 

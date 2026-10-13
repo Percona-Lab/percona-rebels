@@ -4,8 +4,10 @@
  * A Google Apps Script web app bound to a Google Sheet. The game (a static page) calls it:
  *   GET  <exec URL>?action=top               -> { ok: true, top: [{ n, s, w }, ...] }                 (best 10 shown)
  *   GET  <exec URL>?action=start             -> { ok: true, ticket }                                  (when a game starts)
- *   Add &event=<id> to either for an event board (rows in the "events" tab). Starting an event game also needs the
- *   booth's &key=<key>; the event's ticket then carries the event, so its score lands on that board only.
+ *   Add &event=<id> to either for an event board (rows in the "events" tab). Competing on an event board needs a play
+ *   code, &code=<digits>: a raffle ticket number or a Percona Community sign-up code. The event's ticket then carries
+ *   the event and the code, so its score lands on that board only. A wrong code gets { ok: false, error: "code" }; if
+ *   a sign-up code can't be checked with HubSpot right now, error "verify".
  *   POST <exec URL>?action=submit  (text)    -> { ok: true, rank, top, pending } or { ok: false, error }
  *        body: {"x":"<ticket>","n":"AAA","s":12340,"w":7,"t":415,"k":88,"v":2}
  *              ticket, initials, score, wave, seconds played, kills, game version
@@ -14,28 +16,46 @@
  *   1. Every submission needs a one-time ticket from action=start. The script times the run itself, so a score can't
  *      claim more play time than really passed since the ticket was issued, and each ticket is good for one score.
  *   2. The numbers must fit the game's rules: points per kill, kills per wave and per second, seconds per wave.
- *   3. Every score goes live at once, with its "approved" box ticked. Untick a row to hide it, or delete it. To hold
- *      big scores for review instead, set REVIEW_ABOVE to a number: scores above it arrive unticked and stay hidden.
- *      Untick any row to hide it, or delete it.
- * None of this stops a patient cheater who plays along in real time with a doctored client; that's what 3 is for.
+ *   3. Scores that are possible but unlike real play (SUSPECT_* below, measured against the game's autopilot over
+ *      hundreds of games) arrive unticked, hidden, with the reason in the "why" column. Tick the box to show one.
+ *   4. Everything else goes live at once, with its "approved" box ticked. Untick a row to hide it, or delete it.
+ *      To hold big scores for review too, set REVIEW_ABOVE to a number.
+ * None of this stops a patient cheater who plays along in real time with a doctored client; that's what 4 is for, and
+ * at events, a playoff of the top few at the booth before prizes go out.
  *
- * Event boards: one row per event in the "events" tab (id, name, open, key, qr, logo). Only the booth (with the key) can
- * post to an event board; anyone can view it. Event scores never show on the world table. To move one to the world
- * table later, clear its "event" cell. qr is the sign-up link the game shows as a QR code at that event; logo is an
- * https link to the event's logo, shown next to the game on that event's page only.
+ * Event boards: one row per event in the "events" tab, columns found by their header (see EVENTS_HEADER and SETUP.md).
+ * Anyone can view an event board; competing needs a play code: a number from the event's raffle ticket roll (the
+ * "tickets" ranges) or, with "signup codes" ticked, a Percona Community sign-up code: the HubSpot contact id in the
+ * welcome email. Sign-up codes are checked with HubSpot (does that contact exist?), which needs a read-only HubSpot
+ * token in the script properties as HUBSPOT_TOKEN; without one, sign-up codes are off. Nothing about the contact is
+ * read or kept: codes hold no personal data here, and winners prove one is theirs with the ticket or the email. Event
+ * scores never show on the world table: to move one there, clear its "event" cell. "closes" ends competing at that
+ * time; "prize" is a line the game shows ("WINNERS AT THE BOOTH 15:00"); qr and logo are the sign-up link (shown as a
+ * QR code) and the event's logo. The "winners" tab lists each event's best score per code.
  *
- * Stored per score: time, initials, score, wave, seconds, kills, version, approved, event. Nothing else: Apps Script never
- * sees players' IP addresses, and the game sends no names or ids. The spreadsheet itself can stay private.
+ * Stored per score: time, initials, score, wave, seconds, kills, version, approved, event, code, proof, why. Nothing
+ * else: Apps Script never sees players' IP addresses, and the game sends no names. The spreadsheet can stay private.
  * Setup and redeploying: see SETUP.md next to this file.
  */
 
 const SHEET_NAME = "scores";
-const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved", "event"];
-const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General", "@"];
+const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "version", "approved", "event", "code", "proof", "why"];
+const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General", "@", "@", "@", "@"];
 const APPROVED_COL = 8;          // 1-based column of the "approved" tick box
 const EVENTS_SHEET = "events";
-const EVENTS_HEADER = ["event", "name", "open", "key", "qr", "logo"];
+const EVENTS_HEADER = ["event", "name", "open", "qr", "logo", "tickets", "signup codes", "prize", "closes"];
 const COMMUNITY_SIGNUP = "https://percona.community/contribute/newsletter/";
+const WINNERS_SHEET = "winners";
+const WINNERS_HEADER = ["event", "place", "initials", "score", "wave", "code", "proof", "time"];
+const WINNERS_PER_EVENT = 10;
+// Suspicion lines. The game's autopilot, over 300 games (2026-10-13), never went past: 26.5 s a wave on average,
+// 1.66 kills a second, 891 points a kill, 1,024 points a second (scoring 449,530 at best, champion level). The lines
+// sit well beyond that, so a strong human doesn't trip them.
+const SUSPECT_SECS_PER_WAVE = 18;      // average, from wave 4
+const SUSPECT_KILLS_PER_SEC = 2.2;     // over a game of a minute or more
+const SUSPECT_POINTS_PER_KILL = 1250;  // over 40 kills or more
+const SUSPECT_POINTS_PER_SEC = 1400;   // over a game of a minute or more
+const SUSPECT_ABOVE_BEST = 2.5;        // times the board's best so far, once it has 10 scores
 const PGCONFEU_LOGO = "https://2026.pgconf.eu/static/2494bba3/img/logo/logo.svg";
 const REVIEW_ABOVE = Infinity;   // no review: every score shows at once (set e.g. 100000 to hold bigger ones back)
 const KEEP_ROWS = 2000;          // the sheet is trimmed to the best KEEP_ROWS scores
@@ -43,6 +63,7 @@ const CACHE_SECONDS = 20;        // how long the top 10 is cached between reads
 const TICKET_HOURS = 6;          // a ticket expires after this long (the cache maximum)
 const MAX_STARTS_PER_MINUTE = 300;
 const MAX_SUBMITS_PER_MINUTE = 60;
+const HUBSPOT_CONTACT = "https://api.hubapi.com/crm/v3/objects/contacts/";   // + id: 200 if the contact exists, 404 if not
 // Initials that are never accepted (an arcade tradition). Compared after removing anything that isn't a letter.
 const BLOCKED = ["ASS", "CUM", "CNT", "DIK", "DIC", "FAG", "FCK", "FUC", "FUK", "FUX", "KKK", "KYS", "NAZ", "NIG", "PIS", "SEX", "SHT", "TIT", "XXX"];
 
@@ -56,15 +77,19 @@ function doGet(e) {
     if (!ev) return json_({ ok: false, error: "event" });
   }
   if (action === "start") {
-    if (ev && !ev.open) return json_({ ok: false, error: "closed" });
-    if (ev && (!ev.key || String(p.key || "") !== ev.key)) return json_({ ok: false, error: "key" });   // booth only
+    let code = null;
+    if (ev) {
+      if (!live_(ev)) return json_({ ok: false, error: "closed" });
+      code = code_(ev, p.code);
+      if (typeof code === "string") return json_({ ok: false, error: code });
+    }
     if (!underLimit_(cache, "starts", MAX_STARTS_PER_MINUTE)) return json_({ ok: false, error: "busy" });
     const ticket = Utilities.getUuid();
-    cache.put("tk:" + ticket, JSON.stringify({ t: Date.now(), e: ev ? ev.id : "" }), TICKET_HOURS * 3600);
-    return json_({ ok: true, ticket: ticket });
+    cache.put("tk:" + ticket, JSON.stringify({ t: Date.now(), e: ev ? ev.id : "", c: code ? code.code : "", p: code ? code.proof : "" }), TICKET_HOURS * 3600);
+    return json_(code ? { ok: true, ticket: ticket, proof: code.proof } : { ok: true, ticket: ticket });
   }
   if (action !== "top") return json_({ ok: false, error: "unknown action" });
-  const info = ev ? { id: ev.id, name: ev.name, open: ev.open, qr: ev.qr, logo: ev.logo } : undefined;
+  const info = ev ? { id: ev.id, name: ev.name, open: live_(ev), qr: ev.qr, logo: ev.logo, prize: ev.prize, codes: { tickets: ev.tickets.length > 0, signup: ev.signup && !!hubspotToken_() } } : undefined;
   const board = "top:" + (ev ? ev.id : "*");
   const hit = cache.get(board);
   if (hit) return json_({ ok: true, top: JSON.parse(hit), event: info });
@@ -85,7 +110,7 @@ function doPost(e) {
   const ticket = ticket_(cache.get(key));
   if (!ticket) return json_({ ok: false, error: "ticket" });             // unknown, expired or already used
   cache.remove(key);                                                        // one score per ticket
-  const started = ticket.t, event = ticket.e;
+  const started = ticket.t, event = ticket.e, code = ticket.c, proof = ticket.p;
   const elapsed = (Date.now() - started) / 1000;
   if (entry.t > elapsed + 10) return json_({ ok: false, error: "ticket" }); // claims more play time than really passed
 
@@ -93,11 +118,15 @@ function doPost(e) {
   lock.waitLock(10000);
   try {
     const sheet = sheet_();
-    const pending = entry.s > REVIEW_ABOVE;
+    // two games running at once on one code: a script, or a code being passed around
+    const runKey = "run:" + event + ":" + code, prev = code ? Number(cache.get(runKey) || 0) : 0;
+    const why = suspect_(entry, rows_(event), code && prev && started < prev - 5000 ? code : "");
+    const pending = entry.s > REVIEW_ABOVE || why !== "";
+    if (code) cache.put(runKey, String(Date.now()), TICKET_HOURS * 3600);
     // explicit formats first: a date-formatted cell would hand numbers back as dates, and "007" would become 7
     const row = sheet.getRange(sheet.getLastRow() + 1, 1, 1, HEADER.length);
     row.setNumberFormats([FORMATS]);
-    row.setValues([[new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending, event]]);
+    row.setValues([[new Date(), entry.n, entry.s, entry.w, entry.t, entry.k, entry.v, !pending, event, code, proof, why]]);
     checkbox_(sheet.getRange(row.getRow(), APPROVED_COL));
     const rows = rows_(event);
     // rank among the scores people can see (ties share a rank); a pending score is told where it would land
@@ -105,6 +134,7 @@ function doPost(e) {
     const top = top_(rows);
     cache.put("top:" + (event || "*"), JSON.stringify(top), CACHE_SECONDS);
     if (sheet.getLastRow() > KEEP_ROWS + 100) trim_(sheet);
+    if (event) winners();
     return json_({ ok: true, rank: rank, top: top, pending: pending });
   } finally {
     lock.releaseLock();
@@ -137,26 +167,55 @@ function underLimit_(cache, name, max) {
   return true;
 }
 
-/** A ticket from the cache: {t: start time, e: event id}. Tickets from before events were plain start times. */
+/** A ticket from the cache: {t: start time, e: event id, c: play code, p: proof}. The first tickets were plain start times. */
 function ticket_(raw) {
   if (!raw) return null;
   let v; try { v = JSON.parse(raw); } catch (err) { return null; }
-  if (typeof v === "number") return v > 0 ? { t: v, e: "" } : null;
-  return v && v.t > 0 ? { t: Number(v.t), e: String(v.e || "") } : null;
+  if (typeof v === "number") return v > 0 ? { t: v, e: "", c: "", p: "" } : null;
+  return v && v.t > 0 ? { t: Number(v.t), e: String(v.e || ""), c: String(v.c || ""), p: String(v.p || "") } : null;
 }
 
-/** The events tab as { id: { id, name, open, key, qr, logo } }. Links that aren't https are dropped. */
+/**
+ * The events tab as { id: { id, name, open, qr, logo, tickets, signup, prize, closes } }. Columns are found by their
+ * header, so they can be in any order and extra columns are ignored. Links that aren't https are dropped.
+ */
 function events_() {
   const out = {};
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET);
   if (!sheet) return out;
   const values = sheet.getDataRange().getValues();
+  const col = {};
+  (values[0] || []).forEach(function (h, i) { col[String(h).toLowerCase().trim()] = i; });
+  const get = function (r, name) { return col[name] === undefined || r[col[name]] === undefined ? "" : r[col[name]]; };
+  const yes = function (v) { return v === true || String(v).toUpperCase() === "TRUE"; };
   for (let i = 1; i < values.length; i++) {
-    const r = values[i], id = String(r[0] || "").toLowerCase().trim();
+    const r = values[i], id = String(get(r, "event")).toLowerCase().trim();
     if (!/^[a-z0-9-]{1,32}$/.test(id)) continue;
-    out[id] = { id: id, name: String(r[1] || id).slice(0, 24), open: r[2] === true || String(r[2]).toUpperCase() === "TRUE", key: String(r[3] || ""), qr: https_(r[4]), logo: https_(r[5]) };
+    out[id] = {
+      id: id, name: String(get(r, "name") || id).slice(0, 24), open: yes(get(r, "open")), qr: https_(get(r, "qr")), logo: https_(get(r, "logo")),
+      tickets: ranges_(get(r, "tickets")), signup: yes(get(r, "signup codes")), prize: String(get(r, "prize")).trim().slice(0, 40), closes: when_(get(r, "closes")),
+    };
   }
   return out;
+}
+
+/** Ticket ranges from a cell like "457001-458000, 460001-460500" (single numbers too): [[from, to], ...]. */
+function ranges_(v) {
+  return String(v || "").split(/[,;\n]/).map(function (part) {
+    const m = part.replace(/\s/g, "").match(/^(\d{1,15})(?:-(\d{1,15}))?$/);
+    if (!m) return null;
+    const a = Number(m[1]), b = Number(m[2] || m[1]);
+    return [Math.min(a, b), Math.max(a, b)];
+  }).filter(Boolean);
+}
+
+/** A time from a cell (a date-time cell, or text like "2026-10-23 14:45" in the script's time zone) in ms, or 0. */
+function when_(v) {
+  if (v instanceof Date) return v.getTime() || 0;
+  const s = String(v || "").trim();
+  if (!s) return 0;
+  const t = new Date(s.replace(" ", "T")).getTime();
+  return isFinite(t) ? t : 0;
 }
 
 /** An https link from a cell, or "". */
@@ -190,9 +249,101 @@ function top_(rows) {
   return rows.slice().sort(function (a, b) { return b.s - a.s; }).slice(0, 10);
 }
 
+/**
+ * A play code for an event: { code, proof }, or the error "code" (not valid) or "verify" (HubSpot can't be asked right
+ * now). A number on the event's ticket roll is a "ticket" (the winner shows the ticket). With sign-up codes on, another
+ * number is an "email" code if HubSpot has a contact with that id (the Percona Community welcome email carries it; the
+ * winner shows the email). Spaces and dashes are ignored, so are leading zeros.
+ */
+function code_(ev, raw) {
+  const c = String(raw || "").replace(/[\s-]/g, "");
+  if (!/^\d{1,15}$/.test(c)) return "code";
+  const n = Number(c), code = String(n);
+  if (ev.tickets.some(function (r) { return n >= r[0] && n <= r[1]; })) return { code: code, proof: "ticket" };
+  if (!ev.signup || code.length < 5) return "code";
+  const known = contact_(code);
+  return known === true ? { code: code, proof: "email" } : known === false ? "code" : "verify";
+}
+
+function hubspotToken_() {
+  return String(PropertiesService.getScriptProperties().getProperty("HUBSPOT_TOKEN") || "");
+}
+
+/** Whether HubSpot has a contact with this id: true, false, or null if it can't be asked. Answers are cached. */
+function contact_(id) {
+  const token = hubspotToken_();
+  if (!token) return false;
+  const cache = CacheService.getScriptCache(), hit = cache.get("hs:" + id);
+  if (hit) return hit === "1";
+  let status;
+  try {
+    status = UrlFetchApp.fetch(HUBSPOT_CONTACT + encodeURIComponent(id) + "?properties=hs_object_id", { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true }).getResponseCode();
+  } catch (err) { return null; }
+  if (status === 200) { cache.put("hs:" + id, "1", TICKET_HOURS * 3600); return true; }
+  if (status === 404) { cache.put("hs:" + id, "0", 600); return false; }   // someone who signs up a minute later gets in within 10 min
+  return null;                                                              // 401/403 (token), 429 (busy), 5xx
+}
+
+/** Whether an event takes games now: its "open" box is ticked and its closing time, if any, hasn't passed. */
+function live_(ev) {
+  return ev.open && !(ev.closes && Date.now() >= ev.closes);
+}
+
+/**
+ * Why a score that fits the rules still looks unlike real play, or "" if it doesn't. `board` is the board's visible
+ * scores before this one; `overlap` is the code if this game started while another game on it was running.
+ */
+function suspect_(e, board, overlap) {
+  const fmt = function (x, d) { const p = x.toFixed(d).split("."); return p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (p[1] ? "." + p[1] : ""); };
+  if (overlap) return "started while another game on code " + overlap + " was still running";
+  if (e.w >= 4 && e.t / (e.w - 1) < SUSPECT_SECS_PER_WAVE) return "wave " + e.w + " in " + e.t + " s: " + fmt(e.t / (e.w - 1), 1) + " s a wave (strong players take 26 s or more)";
+  if (e.t >= 60 && e.k / e.t > SUSPECT_KILLS_PER_SEC) return e.k + " kills in " + e.t + " s: " + fmt(e.k / e.t, 2) + " a second (strong players reach about 1.7)";
+  if (e.k >= 40 && e.s / e.k > SUSPECT_POINTS_PER_KILL) return fmt(e.s / e.k, 0) + " points a kill (strong players reach about 900)";
+  if (e.t >= 60 && e.s / e.t > SUSPECT_POINTS_PER_SEC) return fmt(e.s / e.t, 0) + " points a second (strong players reach about 1,000)";
+  const best = board.reduce(function (m, r) { return Math.max(m, r.s); }, 0);
+  if (board.length >= 10 && e.s > SUSPECT_ABOVE_BEST * best) return fmt(e.s / best, 1) + " times the best score on this board so far (" + fmt(best, 0) + ")";
+  return "";
+}
+
+/**
+ * Rewrites the "winners" tab: each event's best approved scores, one per play code, with the code and the proof to ask
+ * for (the ticket, or the welcome email); on a tie the earlier score places higher. Runs after every event score; use
+ * REBELS → Update winners after ticking, unticking or deleting rows.
+ */
+function winners() {
+  const book = SpreadsheetApp.getActiveSpreadsheet();
+  const tab = book.getSheetByName(WINNERS_SHEET) || book.insertSheet(WINNERS_SHEET);
+  const ids = Object.keys(events_());
+  const byEvent = {};
+  sheet_().getDataRange().getValues().slice(1).forEach(function (r) {
+    const ev = String(r[8] || "").toLowerCase().trim(), approved = r[7] === true || r[7] === "" || String(r[7]).toUpperCase() === "TRUE";
+    if (ids.indexOf(ev) < 0 || !approved || !(num_(r[2]) > 0)) return;
+    (byEvent[ev] = byEvent[ev] || []).push(r);
+  });
+  const out = [WINNERS_HEADER];
+  ids.forEach(function (ev) {
+    const seen = {};
+    (byEvent[ev] || []).sort(function (a, b) { return num_(b[2]) - num_(a[2]) || new Date(a[0]) - new Date(b[0]); })
+      .filter(function (r) { const c = String(r[9] || ""); if (!c) return true; if (seen[c]) return false; seen[c] = true; return true; })   // each code's best
+      .slice(0, WINNERS_PER_EVENT)
+      .forEach(function (r, i) { out.push([ev, i + 1, String(r[1]), num_(r[2]), num_(r[3]), String(r[9] || ""), String(r[10] || ""), r[0]]); });
+  });
+  tab.clearContents();
+  tab.getRange(1, 1, out.length, WINNERS_HEADER.length).setValues(out);
+  tab.setFrozenRows(1);
+}
+
+/** Adds the REBELS menu to the sheet (runs when the sheet is opened). */
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu("REBELS").addItem("Update winners", "winners").addToUi();
+}
+
+/** Keeps the best KEEP_ROWS scores of each board (the world table and every event), so busy boards can't crowd out others. */
 function trim_(sheet) {
   const values = sheet.getDataRange().getValues();
-  const body = values.slice(1).sort(function (a, b) { return Number(b[2]) - Number(a[2]); }).slice(0, KEEP_ROWS);
+  const count = {};
+  const body = values.slice(1).sort(function (a, b) { return Number(b[2]) - Number(a[2]); })
+    .filter(function (r) { const k = String(r[8] || ""); count[k] = (count[k] || 0) + 1; return count[k] <= KEEP_ROWS; });
   sheet.clearContents();
   sheet.getRange(1, 1, 1, HEADER.length).setValues([HEADER]);
   if (body.length) {
@@ -228,22 +379,30 @@ function json_(obj) {
  * Scores saved before the "approved" column existed are approved if they're at or below REVIEW_ABOVE and left
  * unticked (hidden) if they're above it, so they get the same review as new ones. It also repairs cells that the
  * sheet formatted as dates (they make scores read back as huge numbers). It creates the "events" tab with an example
- * event (PGConf.EU, with a random booth key) the first time. Safe to run again at any time.
+ * event (PGConf.EU, with a random booth key) the first time, and the "winners" tab. Safe to run again at any time.
  */
 function setup() {
   const book = SpreadsheetApp.getActiveSpreadsheet();
   if (!book.getSheetByName(EVENTS_SHEET)) {
     const ev = book.insertSheet(EVENTS_SHEET);
     ev.appendRow(EVENTS_HEADER);
-    ev.appendRow(["pgconfeu", "PGConf.EU", true, Utilities.getUuid().slice(0, 8), COMMUNITY_SIGNUP, PGCONFEU_LOGO]);
+    ev.appendRow(["pgconfeu", "PGConf.EU", true, COMMUNITY_SIGNUP, PGCONFEU_LOGO, "", true, "", ""]);
     ev.setFrozenRows(1);
-    checkbox_(ev.getRange(2, 3, 200, 1));
   } else {
-    // events tabs made before a column existed get its header (e.g. "logo")
-    const evs = book.getSheetByName(EVENTS_SHEET), head = evs.getRange(1, 1, 1, EVENTS_HEADER.length);
-    head.setValues([head.getValues()[0].map(function (h, i) { return h === "" ? EVENTS_HEADER[i] : h; })]);
+    // events tabs made before a column existed get it, at the end; existing rows get sign-up codes on
+    const evs = book.getSheetByName(EVENTS_SHEET), values = evs.getDataRange().getValues();
+    const have = (values[0] || []).map(function (h) { return String(h).toLowerCase().trim(); });
+    EVENTS_HEADER.forEach(function (h) {
+      if (have.indexOf(h) >= 0) return;
+      have.push(h);
+      evs.getRange(1, have.length).setValue(h);
+      if (h === "signup codes" && values.length > 1) evs.getRange(2, have.length, values.length - 1, 1).setValues(values.slice(1).map(function () { return [true]; }));
+    });
   }
+  const evs = book.getSheetByName(EVENTS_SHEET), heads = evs.getDataRange().getValues()[0].map(function (h) { return String(h).toLowerCase().trim(); });
+  ["open", "signup codes"].forEach(function (h) { const i = heads.indexOf(h); if (i >= 0) checkbox_(evs.getRange(2, i + 1, 200, 1)); });
   const sheet = sheet_();
+  winners();
   const last = sheet.getLastRow();
   if (last < 2) return;
   // repair formats: numbers written into date-formatted cells read back as dates; convert them and fix the formats

@@ -66,6 +66,10 @@ Percona tools drop as you break free:
 | PXC | three-node spread shot |
 | Percona Toolkit | `pt-kill` smart bomb: hits everything on screen |
 
+Events can bring their own set. At PostgreSQL events the drops are pg_stat_monitor (radar), pgBackRest (shield),
+Percona Operator for PostgreSQL (wingmen), Patroni (a three-node spread shot), pg_repack (smart bomb) and pg_tde:
+encrypted, so enemies aim at a decoy instead of you.
+
 Classic rules: 3 lives, a bonus ship every 20,000 points, kills while an enemy dives score double, a combo multiplier up
 to ×8, a no-hit bonus per wave, and initials entry for the high-score tables. `prefers-reduced-motion` cuts the screen
 shake, flashes and warp streaks.
@@ -114,8 +118,10 @@ off here: no directory data is part of this repository.
 * The code (`index.html`, `rebels.js`) is released under the [MIT License](LICENSE).
 * The fonts Press Start 2P and VT323 are licensed under the [SIL Open Font License 1.1](OFL.txt).
 * "Percona", the Percona logo (the mountain mark the player's ship is drawn from) and the Percona product icons (PMM,
-  Percona Operators, Percona for MySQL) are trademarks of Percona LLC. They are **not** covered by the MIT License; see
+  Percona Operators, Percona for MySQL, Percona for PostgreSQL) are trademarks of Percona LLC. They are **not** covered by the MIT License; see
   [LICENSE](LICENSE).
 * All enemy and boss art is original. No third-party logos or trademarks are part of this repository. Event pages
-  show the event's own logo, loaded from the event's website when the page runs.
+  show the event's own logo, loaded from the event's website when the page runs, and PostgreSQL power-ups can show the
+  PostgreSQL elephant, loaded from Wikimedia Commons the same way. Community projects named in the game (pgBackRest,
+  Patroni, pg_repack) appear by name only.
 * `leaderboard/Code.gs` is part of the code and also MIT licensed.

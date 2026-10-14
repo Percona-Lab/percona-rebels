@@ -76,6 +76,8 @@ Setup creates it with a PGConf.EU row. Columns are found by their header, in any
 | signup codes | tick box: also accept Percona Community sign-up codes (needs the HubSpot token below) |
 | prize | a line the game shows on the title and code screens, for example `WINNERS AT THE BOOTH 15:00` |
 | closes | when the board stops taking codes, for example `2026-10-23 14:45` (the sheet's time zone: File → Settings) |
+| powerups | a power-up set: `postgresql` replaces the standard power-ups with PostgreSQL ones (pg_stat_monitor, pgBackRest, Percona Operator for PostgreSQL, Patroni, pg_repack, pg_tde); `+postgresql` adds them to the standard ones; empty keeps the standard set |
+| powerups art | an https link to an image shown with the set, for example the PostgreSQL elephant: `https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg`. The game loads it at run time (the image's host must allow cross-origin loading, as Wikimedia does), so it never enters the repository |
 
 A **key** column from the first version of event boards isn't used any more: delete it.
 

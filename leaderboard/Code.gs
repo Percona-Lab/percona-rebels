@@ -31,7 +31,8 @@
  * read or kept: codes hold no personal data here, and winners prove one is theirs with the ticket or the email. Event
  * scores never show on the world table: to move one there, clear its "event" cell. "closes" ends competing at that
  * time; "prize" is a line the game shows ("WINNERS AT THE BOOTH 15:00"); qr and logo are the sign-up link (shown as a
- * QR code) and the event's logo. The "winners" tab lists each event's best score per code.
+ * QR code) and the event's logo; "powerups" picks a power-up set ("postgresql" replaces the standard one, "+postgresql"
+ * adds to it) and "powerups art" an image for it, loaded by the game from that link (the PostgreSQL elephant). The "winners" tab lists each event's best score per code.
  *
  * Stored per score: time, initials, score, wave, seconds, kills, version, approved, event, code, proof, why. Nothing
  * else: Apps Script never sees players' IP addresses, and the game sends no names. The spreadsheet can stay private.
@@ -43,7 +44,7 @@ const HEADER = ["time", "initials", "score", "wave", "seconds", "kills", "versio
 const FORMATS = ["yyyy-mm-dd hh:mm:ss", "@", "0", "0", "0", "0", "0", "General", "@", "@", "@", "@"];
 const APPROVED_COL = 8;          // 1-based column of the "approved" tick box
 const EVENTS_SHEET = "events";
-const EVENTS_HEADER = ["event", "name", "open", "qr", "logo", "tickets", "signup codes", "prize", "closes"];
+const EVENTS_HEADER = ["event", "name", "open", "qr", "logo", "tickets", "signup codes", "prize", "closes", "powerups", "powerups art"];
 const COMMUNITY_SIGNUP = "https://percona.community/contribute/newsletter/";
 const WINNERS_SHEET = "winners";
 const WINNERS_HEADER = ["event", "place", "initials", "score", "wave", "code", "proof", "time", "notes"];   // notes: the only column to type in
@@ -56,6 +57,7 @@ const SUSPECT_KILLS_PER_SEC = 2.2;     // over a game of a minute or more
 const SUSPECT_POINTS_PER_KILL = 1250;  // over 40 kills or more
 const SUSPECT_POINTS_PER_SEC = 1400;   // over a game of a minute or more
 const SUSPECT_ABOVE_BEST = 2.5;        // times the board's best so far, once it has 10 scores
+const SLONIK = "https://upload.wikimedia.org/wikipedia/commons/2/29/Postgresql_elephant.svg";   // the PostgreSQL elephant
 const PGCONFEU_LOGO = "https://2026.pgconf.eu/static/2494bba3/img/logo/logo.svg";
 const REVIEW_ABOVE = Infinity;   // no review: every score shows at once (set e.g. 100000 to hold bigger ones back)
 const KEEP_ROWS = 2000;          // the sheet is trimmed to the best KEEP_ROWS scores
@@ -89,7 +91,7 @@ function doGet(e) {
     return json_(code ? { ok: true, ticket: ticket, proof: code.proof } : { ok: true, ticket: ticket });
   }
   if (action !== "top") return json_({ ok: false, error: "unknown action" });
-  const info = ev ? { id: ev.id, name: ev.name, open: live_(ev), qr: ev.qr, logo: ev.logo, prize: ev.prize, codes: { tickets: ev.tickets.length > 0, signup: ev.signup && !!hubspotToken_() } } : undefined;
+  const info = ev ? { id: ev.id, name: ev.name, open: live_(ev), qr: ev.qr, logo: ev.logo, prize: ev.prize, powerups: ev.powerups, art: ev.art, codes: { tickets: ev.tickets.length > 0, signup: ev.signup && !!hubspotToken_() } } : undefined;
   const board = "top:" + (ev ? ev.id : "*");
   const hit = cache.get(board);
   if (hit) return json_({ ok: true, top: JSON.parse(hit), event: info });
@@ -194,6 +196,7 @@ function events_() {
     out[id] = {
       id: id, name: String(get(r, "name") || id).slice(0, 24), open: yes(get(r, "open")), qr: https_(get(r, "qr")), logo: https_(get(r, "logo")),
       tickets: ranges_(get(r, "tickets")), signup: yes(get(r, "signup codes")), prize: String(get(r, "prize")).trim().slice(0, 40), closes: when_(get(r, "closes")),
+      powerups: /^\+?[a-z0-9-]{1,32}$/.test(String(get(r, "powerups")).toLowerCase().trim()) ? String(get(r, "powerups")).toLowerCase().trim() : "", art: https_(get(r, "powerups art")),
     };
   }
   return out;
@@ -432,7 +435,7 @@ function setup() {
   if (!book.getSheetByName(EVENTS_SHEET)) {
     const ev = book.insertSheet(EVENTS_SHEET);
     ev.appendRow(EVENTS_HEADER);
-    ev.appendRow(["pgconfeu", "PGConf.EU", true, COMMUNITY_SIGNUP, PGCONFEU_LOGO, "", true, "", ""]);
+    ev.appendRow(["pgconfeu", "PGConf.EU", true, COMMUNITY_SIGNUP, PGCONFEU_LOGO, "", true, "", "", "postgresql", SLONIK]);
     ev.setFrozenRows(1);
   } else {
     // events tabs made before a column existed get it, at the end; existing rows get sign-up codes on

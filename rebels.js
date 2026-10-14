@@ -28,8 +28,8 @@
     { id: "surprise-audit", name: "Surprise Audit", tag: "AUDIT", color: "#e2cfa0", hp: 2, points: 150, pattern: "dive", sprite: "clipboard", ability: "jam", hint: "Its paperwork jams your guns", quip: "Just a routine check. Every year." },
     { id: "core-tax", name: "Core Tax", tag: "CORE TAX", color: "#3fd0e0", hp: 2, points: 150, pattern: "spiral", sprite: "chip", ability: "split", hint: "Splits into two cores when destroyed", quip: "Priced per core. You have many cores." },
     { id: "auto-renewal", name: "Auto-Renewal", tag: "RENEWAL", color: "#ff7ac6", hp: 2, points: 160, pattern: "loop", sprite: "calendar", ability: "renew", hint: "Comes back once. A smart bomb ends it", quip: "Renewed for another three years." },
-    { id: "black-box", name: "Black Box", tag: "BLACK BOX", color: "#6a6484", hp: 2, points: 170, pattern: "swoop", sprite: "cube", ability: "stealth", hint: "Nearly invisible. PMM radar reveals it", quip: "No, you can't see the source." },
-    { id: "enterprise-only", name: "Enterprise-Only Feature", tag: "PAYWALL", color: "#c8643b", hp: 4, points: 200, pattern: "dive", sprite: "paywall", ability: "armor", hint: "Armoured. PXC spread shots break it", quip: "Available in the Platinum tier." },
+    { id: "black-box", name: "Black Box", tag: "BLACK BOX", color: "#6a6484", hp: 2, points: 170, pattern: "swoop", sprite: "cube", ability: "stealth", hint: "Hidden until {radar} is on", quip: "No, you can't see the source." },
+    { id: "enterprise-only", name: "Enterprise-Only Feature", tag: "PAYWALL", color: "#c8643b", hp: 4, points: 200, pattern: "dive", sprite: "paywall", ability: "armor", hint: "Armoured. {spread}", quip: "Available in the Platinum tier." },
   ];
   // Bosses take turns every RULES.bossEvery waves. hp and points grow with each encounter. style picks the art and attacks.
   const BOSSES = [
@@ -48,6 +48,27 @@
     { id: "pxc", label: "PXC", name: "PXC", color: "#ea6525", icon: "pxc", iconColor: "#ea6525", weight: 3, duration: 15, desc: "Triple spread shot. Three nodes, three shots.", banner: "PXC", sub: "3-NODE SPREAD SHOT" },
     { id: "toolkit", label: "PT", name: "Percona Toolkit", color: "#ff5c7a", weight: 1, desc: "Smart bomb. Hits everything on screen.", banner: "PERCONA TOOLKIT", sub: "PT-KILL! SMART BOMB" },
   ];
+  /* Power-up sets for events: the events tab's "powerups" cell picks one ("postgresql" replaces the standard set,
+     "+postgresql" adds to it). Each drop does what a standard one does ("does" names it), or "tde" (pg_tde: enemies
+     aim at a decoy). hints fill {radar} and {spread} in the enemy hints. Community projects get text labels, no logos. */
+  const STANDARD_HINTS = { radar: "PMM radar", spread: "PXC spread shots break it" };
+  const POWERUP_SETS = {
+    postgresql: {
+      title: "POSTGRESQL POWER-UPS", hints: { radar: "pg_stat_monitor", spread: "Patroni spread breaks it" },
+      list: [
+        { id: "pg_stat_monitor", does: "pmm", label: "PGSM", name: "pg_stat_monitor", color: "#5b9dff", icon: "postgresql", iconColor: "#3d86f5", weight: 3, duration: 15, desc: "Radar. Every query, every dive, seen before it starts.", banner: "PG_STAT_MONITOR", sub: "EVERY QUERY, EVERY DIVE" },
+        { id: "pgbackrest", does: "xtrabackup", label: "BR", name: "pgBackRest", color: "#35c46a", weight: 2, desc: "Shield. Grab another for an extra life.", banner: "PGBACKREST", sub: "SHIELD UP. YOU'RE BACKED UP", subLife: "RESTORED FROM BACKUP: +1 LIFE" },
+        { id: "pg-operator", does: "operator", label: "OP", name: "Percona Operator for PostgreSQL", color: "#2aa6df", icon: "operator", iconColor: "#2aa6df", weight: 2, duration: 20, desc: "Deploys two wingman drones.", banner: "PERCONA OPERATOR", sub: "FOR POSTGRESQL: 2 REPLICAS" },
+        { id: "patroni", does: "pxc", label: "HA", name: "Patroni", color: "#ea6525", weight: 3, duration: 15, desc: "Triple spread shot. A three-node HA cluster.", banner: "PATRONI", sub: "3-NODE HA CLUSTER" },
+        { id: "pg_repack", does: "toolkit", label: "RPK", name: "pg_repack", color: "#ff5c7a", weight: 1, desc: "Smart bomb. Repacks everything on screen.", banner: "PG_REPACK", sub: "BLOAT REMOVED" },
+        { id: "pg_tde", does: "tde", label: "TDE", name: "pg_tde", color: "#22c1a5", icon: "postgresql", iconColor: "#22c1a5", weight: 2, duration: 12, desc: "Encryption. Enemies can't read where you are.", banner: "PG_TDE", sub: "ENCRYPTED. THEY CAN'T READ YOU" },
+      ],
+    },
+  };
+  const STANDARD_POWERUPS = POWERUPS.slice();
+  const ALL_POWERUPS = STANDARD_POWERUPS.concat(...Object.values(POWERUP_SETS).map((s) => s.list));
+  const PU = { set: "", hints: STANDARD_HINTS, title: "POWER-UPS", art: null };      // the set in play
+  const doesOf = (P) => P.does || P.id;
   const RULES = { startLives: 3, maxLives: 9, extraLifeEvery: 20000, bossEvery: 5, dropChance: 0.07, maxCombo: 8, comboStep: 5, comboWindow: 2.0 };
   // Default high-score table (initials only: the game never ranks people from the roster).
   const DEFAULT_SCORES = [["PXC", 30000, 10], ["PMM", 25000, 9], ["PXB", 20000, 8], ["OPS", 15000, 7], ["PTK", 12000, 6], ["SQL", 9000, 5], ["DBA", 6000, 4], ["OSS", 4000, 3], ["YAY", 2000, 2], ["GUD", 1000, 1]];
@@ -224,7 +245,7 @@
       def.frames = [make(def, false), make(def, true)]; def.white = def.frames.map((f) => silhouette(f));
     });
     DRONE.pal = paletteFor(C.purple); DRONE.img = paint(mirror(DRONE), DRONE.pal);
-    POWERUPS.forEach((P) => { if (P.icon && PRODUCT_ICONS[P.icon]) { const base = rgbOf(P.iconColor || P.color); P.iconImg = buildIcon(P.icon, hex(base), 23); P.iconHi = buildIcon(P.icon, hex(mix(base, [255, 255, 255], 0.55)), 23); P.iconBig = buildIcon(P.icon, hex(mix(base, [255, 255, 255], 0.15)), 38); } });
+    ALL_POWERUPS.forEach((P) => { if (P.icon && PRODUCT_ICONS[P.icon]) { const base = rgbOf(P.iconColor || P.color); P.iconImg = buildIcon(P.icon, hex(base), 23); P.iconHi = buildIcon(P.icon, hex(mix(base, [255, 255, 255], 0.55)), 23); P.iconBig = buildIcon(P.icon, hex(mix(base, [255, 255, 255], 0.15)), 38); } });
   }
   // Vendor Lock-In: a padlock battleship, drawn in code (48x36, anchor at 24,20)
   function makeBoss(def, open) {
@@ -282,6 +303,7 @@
     pmm: "M529.44,662.42L529.44,662.42L773.07,662.42L651.25,451.44L529.44,662.42Z M435.89,555.32L419.17,526.36L340.61,662.42L374.06,662.42L435.89,555.32Z M587.99,516.98L535.5,426.08L399.05,662.42L504.03,662.42L587.99,516.98Z M529.44,683.48L529.44,683.48L773.07,683.48L651.25,894.45L529.44,683.48Z M435.89,790.57L419.17,819.53L340.61,683.48L374.06,683.48L435.89,790.57Z M587.99,828.91L535.5,919.81L399.05,683.48L504.03,683.48L587.99,828.91Z",           // PMM color.svg
     operator: "M285.46,815.31l31.02,82.63h452.56l68.58-82.63H285.46Z M338.58,786.24L485.24,528.52L504.78,562.26L376.93,786.24Z M607.11,706.43L653.19,786.24L801.39,786.24L607.11,449.74L412.83,786.24L561.03,786.24L607.11,706.43Z M471.65,449.74L521.09,535.38L570.54,449.74L471.65,449.74Z", // Percona Operators color.svg
     pxc: "M355.31,798.52L446.37,798.52L401.31,719.55L355.31,798.52Z M287.72,808.89L271.19,834.94L271.19,899.17L332.21,836.75L364.12,864.61L404.64,863.85L357.54,808.89L287.72,808.89Z M668.31,608.9h-103.63l-115.28-47.15,29.15,51.04-112.11,61.96-64.71,111.7h34.92l64.98-111.54,63.62,111.51h66.14l-20,34.32,43.46,76.17,100.45-173.04-28.41-49.66,82.27.19,28.45,49.82h-56.27l-78.13,133.72,23.45,40,64.76-110.43,13.62-.48c36.63,0,126.32-8.48,126.32-45.12,0-65.16-97.9-133.01-163.07-133.01ZM764.38,754.63c0,5.13-4.19,9.32-9.32,9.32h-8.67c-5.13,0-9.32-4.2-9.32-9.32v-8.67c0-5.13,4.19-9.32,9.32-9.32h8.67c5.13,0,9.32,4.19,9.32,9.32v8.67Z",           // Percona for MySQL black.svg (the MySQL icon stands in for PXC)
+    postgresql: "M681.51,899.1L625.22,899.1L567.09,798.9L609.3,726.62L620.68,791.4L681.51,899.1Z M718.7,562.3h-14.61l-6.06,10.37-45.26,78.39-33.43,57.9-3.84,6.66h107.44l32.67,32.67v59.03h-52.4c-5.34,0-9.67,4.33-9.67,9.67v39.11h62.55c26.37,0,47.78-21.13,48.27-47.38h.02v-160.72c0-47.33-38.37-85.7-85.7-85.7ZM740.29,646.03c0,5.32-4.35,9.67-9.67,9.67h-8.99c-5.32,0-9.67-4.35-9.67-9.67v-8.99c0-5.32,4.35-9.67,9.67-9.67h8.99c5.32,0,9.67,4.35,9.67,9.67v8.99Z M305.31,827.37L328.46,787.35L378.35,787.35L442.63,898.29L498.94,898.29L433.67,787.35L548.29,787.45L573.7,743.44L516.78,645.54L473.31,569.38L374.65,570.25L305.94,688.19L305.88,704.68L279.05,752.33L279.05,799.28L306.72,752.18Z M276.72,828.89L276.34,828.67L276.34,829.2L276.72,828.89Z M586.76,720.72L689.75,542.35L483.78,542.35L586.76,720.72Z M557.54,809.88h-30.45v79.55c0,5.34,4.33,9.67,9.67,9.67h46.53l-.23-44.84-25.52-44.38Z M362.46,867.89l23.21-40.05-10.35-17.95h-43.93l-22.88,39.62v39.32c0,5.34,4.33,9.67,9.67,9.67h61.73l-17.45-30.6Z", // Percona for PostgreSQL
   };
   function buildIcon(id, css, size = 19) {
     const c = makeCanvas(size, size), x = ctx2d(c), s = size / 1123.51;
@@ -723,7 +745,7 @@
         if (!d || !d.ok) throw new Error("bad reply");
         if (this.evId && !(d.event && typeof d.event === "object")) throw new Error("no events here");   // a script from before events
         this.top = this.clean(d.top); this.status = "ok";
-        if (this.evId) { this.event = d.event && typeof d.event === "object" ? { name: String(d.event.name || ""), qr: String(d.event.qr || ""), logo: String(d.event.logo || ""), open: !!d.event.open, prize: String(d.event.prize || ""), codes: { tickets: !!(d.event.codes && d.event.codes.tickets), signup: !!(d.event.codes && d.event.codes.signup) } } : null; EventPanels.show(); }
+        if (this.evId) { this.event = d.event && typeof d.event === "object" ? { name: String(d.event.name || ""), qr: String(d.event.qr || ""), logo: String(d.event.logo || ""), open: !!d.event.open, prize: String(d.event.prize || ""), powerups: String(d.event.powerups || ""), art: String(d.event.art || ""), codes: { tickets: !!(d.event.codes && d.event.codes.tickets), signup: !!(d.event.codes && d.event.codes.signup) } } : null; EventPanels.show(); if (this.event) usePowerups(this.event.powerups, this.event.art); }
       }
       catch { if (this.status !== "ok") this.status = "offline"; }
     },
@@ -858,7 +880,7 @@
       demo, score: 0, lives: demo ? 3 : RULES.startLives, wave: 0, nextLife: RULES.extraLifeEvery, t: 0,
       phase: "intro", phaseT: 0, spawnT: 0, isBoss: false, featured: [],
       enemies: [], queue: [], ebul: [], pbul: [], parts: [], pops: [], pups: [], wing: [], boss: null, beam: null,
-      form: { t: 0, mix: 0, top: 46, cols: 8 }, diveT: 3, fx: { pmm: 0, pxc: 0, op: 0, shield: false },
+      form: { t: 0, mix: 0, top: 46, cols: 8 }, diveT: 3, fx: { pmm: 0, pxc: 0, op: 0, tde: 0, shield: false }, decoy: W / 2, decoyT: 0,
       streak: 0, streakT: 0, mult: 1, shots: 0, hits: 0, kills: 0, deathsThisWave: 0,
       p: { x: W / 2, y: H - 34, alive: true, inv: 0, cd: 0, deadT: 0 }, shake: 0, flash: 0, banner: null,
     };
@@ -938,7 +960,7 @@
   }
   function telegraph(w, e, lead, i) {
     const d = diff(w); const s = slotPos(w, e);
-    e.state = "tele"; e.t = 0; e.tx = clamp(w.p.x + rnd(-24, 24), 12, W - 12); e.dir = s.x < W / 2 ? -1 : 1; e.pattern = e.type.pattern; e.spd = d.dive;
+    e.state = "tele"; e.t = 0; e.tx = clamp(aimX(w) + rnd(-24, 24), 12, W - 12); e.dir = s.x < W / 2 ? -1 : 1; e.pattern = e.type.pattern; e.spd = d.dive;
     if (lead) { e.tx = clamp(lead.tx + (i ? 12 : -12), 12, W - 12); e.pattern = lead.pattern; e.dir = lead.dir; e.t = -0.14 * (i + 1); }
   }
   function beginDive(w, e) {
@@ -959,13 +981,13 @@
   }
   function eShoot(w, x, y, { aim = true, speed, angle = 0, kind = "s" } = {}) {
     const s = speed || diff(w).bullet; let vx = 0, vy = s;
-    if (aim) { const dx = w.p.x - x, dy = Math.max(30, w.p.y - y), L = Math.hypot(dx, dy); vx = clamp((dx / L) * s, -s * 0.45, s * 0.45); vy = Math.sqrt(s * s - vx * vx); }
+    if (aim) { const dx = aimX(w) - x, dy = Math.max(30, w.p.y - y), L = Math.hypot(dx, dy); vx = clamp((dx / L) * s, -s * 0.45, s * 0.45); vy = Math.sqrt(s * s - vx * vx); }
     if (angle) { const c = Math.cos(angle), sn = Math.sin(angle); [vx, vy] = [vx * c - vy * sn, vx * sn + vy * c]; }
     w.ebul.push({ x, y, vx, vy, kind });
   }
   function formationFire(w, dt, d) {
     if (!w.p.alive || Math.random() > d.formFire * dt) return;
-    const near = w.enemies.filter((e) => e.state === "form" && e.type.ability !== "flip" && Math.abs(e.x - w.p.x) < 44);
+    const near = w.enemies.filter((e) => e.state === "form" && e.type.ability !== "flip" && Math.abs(e.x - aimX(w)) < 44);
     if (!near.length) return;
     const e = near.reduce((a, b) => (b.row > a.row ? b : a)); enemyShot(w, e, { aim: Math.random() < 0.5 });
   }
@@ -1052,7 +1074,7 @@
       at.min = (ph === 3 ? 6 : 4.5) * (troll ? 0.8 : 1);
       [-1, 1].forEach((side) => {
         const type = pick(ENEMIES); const e = mkEnemy(w, type, 0, 0);
-        Object.assign(e, { minion: true, state: "dive", t: 0, sx: b.x + side * 20, sy: b.y + 8, x: b.x + side * 20, y: b.y + 8, tx: clamp(w.p.x + side * 20, 12, W - 12), dir: side, pattern: type.pattern, spd: diff(w).dive, fireAt: [0.35], fired: 0, hp: type.hp });
+        Object.assign(e, { minion: true, state: "dive", t: 0, sx: b.x + side * 20, sy: b.y + 8, x: b.x + side * 20, y: b.y + 8, tx: clamp(aimX(w) + side * 20, 12, W - 12), dir: side, pattern: type.pattern, spd: diff(w).dive, fireAt: [0.35], fired: 0, hp: type.hp });
         w.enemies.push(e);
       });
     }
@@ -1084,7 +1106,7 @@
       return;
     }
     if (ab === "split" && e.type.child) {                                                                    // Core Tax: two cores for the price of one
-      [-1, 1].forEach((side) => { const c = mkEnemy(w, e.type.child, 0, 0); Object.assign(c, { minion: true, state: "dive", t: 0, sx: e.x + side * 4, sy: e.y, x: e.x + side * 4, y: e.y, tx: clamp(w.p.x + side * 24, 12, W - 12), dir: side, pattern: "dive", spd: diff(w).dive * 1.1, fireAt: [], fired: 0, hp: 1 }); w.enemies.push(c); });
+      [-1, 1].forEach((side) => { const c = mkEnemy(w, e.type.child, 0, 0); Object.assign(c, { minion: true, state: "dive", t: 0, sx: e.x + side * 4, sy: e.y, x: e.x + side * 4, y: e.y, tx: clamp(aimX(w) + side * 24, 12, W - 12), dir: side, pattern: "dive", spd: diff(w).dive * 1.1, fireAt: [], fired: 0, hp: 1 }); w.enemies.push(c); });
     }
     if (w.pups.length < 2 && Math.random() < RULES.dropChance + 0.02 * e.type.hp) {
       const total = POWERUPS.reduce((s, p) => s + p.weight, 0); let r = rnd(total);
@@ -1109,17 +1131,26 @@
     if (w.fx.shield) { w.fx.shield = false; p.inv = 1.2; shake(w, 3); explode(w, p.x, p.y, [C.teal, C.white], 12, 60); sfx(w, "shield"); return true; }
     p.alive = false; p.deadT = 0; w.lives--; w.deathsThisWave++;
     explode(w, p.x, p.y, [C.white, C.yellow, C.purple, C.lilac, C.red], 46, 120); shake(w, 8); w.flash = 0.6; sfx(w, "death");
-    w.fx = { pmm: 0, pxc: 0, op: 0, shield: false }; w.wing = []; w.streak = 0; w.mult = 1;
+    w.fx = { pmm: 0, pxc: 0, op: 0, tde: 0, shield: false }; w.wing = []; w.streak = 0; w.mult = 1;
     return true;
   }
   function applyPower(w, pu) {
-    const P = pu.P; let sub = P.sub;
-    if (P.id === "pmm") w.fx.pmm = P.duration;
-    else if (P.id === "xtrabackup") { if (w.fx.shield) { if (w.lives < RULES.maxLives) w.lives++; sub = P.subLife; } else w.fx.shield = true; }
-    else if (P.id === "operator") { w.fx.op = P.duration; if (!w.wing.length) w.wing = [-1, 1].map((side) => ({ side, x: w.p.x, y: w.p.y })); }
-    else if (P.id === "pxc") w.fx.pxc = P.duration;
-    else if (P.id === "toolkit") smartBomb(w);
+    const P = pu.P, does = doesOf(P); let sub = P.sub;
+    if (does === "pmm") w.fx.pmm = P.duration;
+    else if (does === "tde") { w.fx.tde = P.duration; w.decoyT = 0; }
+    else if (does === "xtrabackup") { if (w.fx.shield) { if (w.lives < RULES.maxLives) w.lives++; sub = P.subLife; } else w.fx.shield = true; }
+    else if (does === "operator") { w.fx.op = P.duration; if (!w.wing.length) w.wing = [-1, 1].map((side) => ({ side, x: w.p.x, y: w.p.y })); }
+    else if (does === "pxc") w.fx.pxc = P.duration;
+    else if (does === "toolkit") smartBomb(w);
     addScore(w, 100); banner(w, P.banner, sub, 1.8, P.color); sfx(w, "power");
+  }
+  // where enemies aim: at you, or with pg_tde on, at a decoy they think is you
+  function aimX(w) { return w.fx.tde > 0 ? w.decoy : w.p.x; }
+  function moveDecoy(w, dt) {
+    if (!(w.fx.tde > 0)) return;
+    if ((w.decoyT -= dt) > 0 && Math.abs(w.decoy - w.p.x) >= 36) return;
+    const side = w.p.x < W / 2 ? 1 : -1;                                      // toward the roomier side
+    w.decoy = clamp(w.p.x + side * rnd(56, 96), 12, W - 12); w.decoyT = 1.6;
   }
   function smartBomb(w) {
     w.ebul = []; w.flash = 1; shake(w, 6); sfx(w, "bomb");
@@ -1170,13 +1201,14 @@
     w.t += dt; w.phaseT += dt; w.form.t += dt;
     w.shake = Math.max(0, w.shake - dt * 22); w.flash = Math.max(0, w.flash - dt * 2.5);
     if (w.banner && (w.banner.t += dt) > w.banner.dur) w.banner = null;
-    for (const k of ["pmm", "pxc", "op"]) if (w.fx[k] > 0) { w.fx[k] = Math.max(0, w.fx[k] - dt); if (k === "op" && !w.fx.op) w.wing = []; }
+    for (const k of ["pmm", "pxc", "op", "tde"]) if (w.fx[k] > 0) { w.fx[k] = Math.max(0, w.fx[k] - dt); if (k === "op" && !w.fx.op) w.wing = []; }
     if (w.streakT > 0 && (w.streakT -= dt) <= 0) { w.streak = 0; w.mult = 1; }
     if (!w.demo && assistedNow()) w.assisted = true;
     if (!w.demo && G.support === "premium" && w.p.alive && !w.fx.shield && (w.premiumT = (w.premiumT || 0) + dt) >= 15) {
       w.premiumT = 0; w.fx.shield = true; popup(w, w.p.x, w.p.y - 14, "PREMIUM SUPPORT"); sfx(w, "shield");
     }
     const d = diff(w);
+    moveDecoy(w, dt);
 
     if (w.phase === "intro") {
       updatePlayer(w, dt, ctl);
@@ -1356,6 +1388,7 @@
     }
     for (const m of w.wing) g.drawImage(DRONE.img, Math.round(m.x - 3), Math.round(m.y - 2));
     const p = w.p;
+    if (p.alive && w.fx.tde > 0) { g.globalAlpha = blink(5) ? 0.4 : 0.25; drawShip(w.decoy, p.y, w); g.globalAlpha = 1; }   // pg_tde's decoy
     if (p.alive && !(p.inv > 0 && !G.ops && Math.floor(G.t * 12) % 2)) drawShip(p.x, p.y, w);
     if (p.alive && G.ops && !w.demo) { g.fillStyle = blink(6) ? C.lilac : C.purple; for (let a = 0; a < Math.PI * 2; a += 0.35) g.fillRect(Math.round(p.x + Math.cos(a - G.t) * 13), Math.round(p.y + 1 + Math.sin(a - G.t) * 12), 1, 1); }
     if (p.alive && p.jam > 0 && blink(6)) text("JAMMED", p.x, p.y + 10, C.orange, { small: true, align: "center" });
@@ -1441,10 +1474,11 @@
     text(`WAVE ${w.wave}`, W - 4, y + 2, w.isBoss ? C.red : C.lilac, { small: true, align: "right" });
     let x = 78;
     const timer = (label, left, max, color) => { text(label, x, y, color, { small: true }); const lw = textWidth(label, { small: true }); g.fillStyle = C.ink; g.fillRect(x, y + 6, lw, 2); g.fillStyle = color; g.fillRect(x, y + 6, Math.ceil((lw * left) / max), 2); x += lw + 6; };
-    const P = (id) => POWERUPS.find((p) => p.id === id) || { label: id.toUpperCase(), duration: 1, color: C.white };
+    const P = (id) => POWERUPS.find((p) => doesOf(p) === id) || ALL_POWERUPS.find((p) => doesOf(p) === id) || { label: id.toUpperCase(), duration: 1, color: C.white };
     if (w.fx.pmm > 0) timer(P("pmm").label, w.fx.pmm, P("pmm").duration, P("pmm").color);
     if (w.fx.pxc > 0) timer(P("pxc").label, w.fx.pxc, P("pxc").duration, P("pxc").color);
     if (w.fx.op > 0) timer(P("operator").label, w.fx.op, P("operator").duration, P("operator").color);
+    if (w.fx.tde > 0) timer(P("tde").label, w.fx.tde, P("tde").duration, P("tde").color);
     if (w.fx.shield) timer(P("xtrabackup").label, 1, 1, P("xtrabackup").color);
     if (w.demo) { text("DEMO PLAY", W / 2, 26, C.lilac, { small: true, align: "center" }); if (blink(2)) text(G.credits || Tokens.free ? "PRESS START" : atEvent() ? "INSERT TOKEN" : "INSERT COIN", W / 2, 206, C.yellow, { align: "center", shadow: C.ink }); }
   }
@@ -1496,25 +1530,59 @@
       const y = 66 + i * 20;
       drawType(e, Math.floor(G.t * 2), 22, y + 3, false);
       text(e.name, 36, y, C.white, { small: true });
-      text(e.hint || `HP ${e.hp}  ${String(e.pattern).toUpperCase()}`, 36, y + 7, C.faint, { small: true });
+      text(e.hint ? e.hint.replace("{radar}", PU.hints.radar).replace("{spread}", PU.hints.spread) : `HP ${e.hp}  ${String(e.pattern).toUpperCase()}`, 36, y + 7, C.faint, { small: true });
       text(`${e.points}`, W - 12, y, C.yellow, { align: "right" });
     });
     if (t > 0.25 * Math.min(9, ENEMIES.length)) { const y = 66 + Math.min(9, ENEMIES.length) * 20; text(BOSSES.map((b) => b.name).join(" / ").toUpperCase(), 36, y, C.red, { small: true }); text(`BOSSES EVERY ${RULES.bossEvery} WAVES, TAKING TURNS`, 36, y + 7, C.faint, { small: true }); text("???", W - 12, y, C.red, { align: "right" }); }
   }
   function renderPowerTable() {
-    const t = G.attract.t;
-    text("POWER-UPS", W / 2, 30, C.yellow, { align: "center", shadow: C.purple });
-    text("PERCONA TOOLS DROP AS YOU BREAK FREE", W / 2, 43, C.lilac, { small: true, align: "center" });
+    const t = G.attract.t, n = POWERUPS.length, rowH = n <= 5 ? 40 : n <= 7 ? 33 : Math.floor(204 / n), top = 58;
+    text(PU.title, W / 2, 30, C.yellow, { align: "center", shadow: C.purple });
+    if (PU.art) g.drawImage(PU.art, 6, 18);
+    text(PU.set ? "OPEN SOURCE TOOLS DROP AS YOU BREAK FREE" : "PERCONA TOOLS DROP AS YOU BREAK FREE", W / 2, 43, C.lilac, { small: true, align: "center" });
     POWERUPS.forEach((P, i) => {
       if (t < 0.3 * i) return;
-      const y = 58 + i * 40;
-      drawPup(P, 26, y + 8, true);
-      text(P.name, 50, y, C.white);
-      wrap(P.desc, 42).slice(0, 2).forEach((l, j) => text(l, 50, y + 10 + j * 7, C.dim, { small: true }));
+      const y = top + i * rowH, room = W - 54;
+      drawPup(P, 26, y + (n <= 5 ? 8 : 5), n <= 5);
+      const small = textWidth(P.name) > room;
+      text(small ? P.name.toUpperCase() : P.name, 50, y + (small ? 1 : 0), C.white, { small });
+      if (rowH >= 30) wrap(P.desc, 42).slice(0, 2).forEach((l, j) => text(l, 50, y + 10 + j * 7, C.dim, { small: true }));
     });
-    const y = 58 + POWERUPS.length * 40 + 2;
-    text(`COMBOS MULTIPLY YOUR SCORE UP TO X${RULES.maxCombo}`, W / 2, y, C.teal, { small: true, align: "center" });
+    const y = top + n * rowH + 2;
+    text(`COMBOS MULTIPLY YOUR SCORE UP TO X${RULES.maxCombo}`, W / 2, Math.min(y, H - 22), C.teal, { small: true, align: "center" });
   }
+  // switches the power-ups to an event's set: "postgresql" replaces the standard ones, "+postgresql" adds to them
+  function usePowerups(spec, artUrl) {
+    const m = String(spec || "").toLowerCase().trim().match(/^(\+?)([a-z0-9-]+)$/), set = m && POWERUP_SETS[m[2]];
+    const key = set ? m[1] + m[2] : "";
+    if (key !== PU.set) {
+      POWERUPS.splice(0, POWERUPS.length, ...(set ? (m[1] ? STANDARD_POWERUPS.concat(set.list) : set.list) : STANDARD_POWERUPS));
+      PU.set = key; PU.hints = set ? set.hints : STANDARD_HINTS; PU.title = set ? set.title : "POWER-UPS";
+    }
+    const url = set && /^https:\/\//.test(artUrl || "") ? artUrl : "";
+    if (url === PU.artUrl) return;
+    PU.artUrl = url; PU.art = null;
+    if (!url) return;
+    // the set's art (e.g. the PostgreSQL elephant), loaded at run time so the repo holds no third-party marks. CORS only:
+    // an image without it would taint the canvas and turn off the CRT filter, so then there's simply no art.
+    const img = new Image(); img.crossOrigin = "anonymous"; img.referrerPolicy = "no-referrer";
+    img.onload = () => { if (PU.artUrl === url) PU.art = pixelArt(img, 24); };
+    img.onerror = () => {};
+    img.src = url;
+  }
+  // an image as 24-ish px pixel art: scaled down, hard edges, no half-transparent pixels
+  function pixelArt(img, size) {
+    const r = (img.naturalWidth || img.width) / (img.naturalHeight || img.height) || 1, w = Math.max(1, Math.round(r >= 1 ? size : size * r)), h = Math.max(1, Math.round(r >= 1 ? size / r : size));
+    const c = makeCanvas(w, h), x = c.getContext("2d", { willReadFrequently: true });
+    try {
+      x.imageSmoothingEnabled = true; x.drawImage(img, 0, 0, w, h);
+      const d = x.getImageData(0, 0, w, h);
+      for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i] > 110 ? 255 : 0;
+      x.putImageData(d, 0, 0);
+      return c;
+    } catch { return null; }
+  }
+
   function renderScoreTable(highlight, list = G.scores, title = World.on ? "YOUR HIGH SCORES" : "HIGH SCORES", note = "") {
     text(title, W / 2, 30, C.yellow, { align: "center", shadow: C.purple });
     text("RANK   SCORE   NAME  WAVE", W / 2, 48, C.lilac, { small: true, align: "center" });
@@ -1584,7 +1652,7 @@
           if (!v || typeof v !== "object") return v;
           if (k === "parts") return [];
           if (BOSSES.includes(v)) return { $b: v.id };
-          if (POWERUPS.includes(v)) return { $p: v.id };
+          if (ALL_POWERUPS.includes(v)) return { $p: v.id };
           if (v.frames && v.id) return { $t: v.id };
           return v;
         });
@@ -1598,7 +1666,7 @@
       let missing = false;
       const w = JSON.parse(saved.world, (k, v) => {
         if (!v || typeof v !== "object") return v;
-        const found = v.$t ? types.get(v.$t) : v.$b ? BOSSES.find((b) => b.id === v.$b) : v.$p ? POWERUPS.find((p) => p.id === v.$p) : v;
+        const found = v.$t ? types.get(v.$t) : v.$b ? BOSSES.find((b) => b.id === v.$b) : v.$p ? ALL_POWERUPS.find((p) => p.id === v.$p) : v;
         if (!found) missing = true;
         return found;
       });
@@ -2112,10 +2180,11 @@
     resize(); addEventListener("resize", resize); applyCrt(); setAttract(0); Suspend.restore();
     requestAnimationFrame(frame);
     // hooks for tests: only in builds without the shared world table, so they can't be used to fake a world score
-    const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, version: 2 };
+    const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, get powerups() { return POWERUPS.map((p) => p.id); }, get powerupArt() { return !!PU.art; }, version: 2 };
     window.PERCONA_REBELS = World.on ? info : {
       get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES, World,
-      give(id) { const P = POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
+      give(id) { const P = ALL_POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
+      usePowerups, PU,
       icon(size, maskable) { return makeIcon(size, maskable).toDataURL("image/png"); },
       warpTo(n) { if (G.world) { G.world.wave = Math.max(0, n - 1); startWave(G.world); } },
       // plays one whole game with the autopilot as fast as the CPU allows (calibrating the table's suspicion rules)

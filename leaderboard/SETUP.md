@@ -109,7 +109,9 @@ typo would put a high score on a code they can't claim the prize with.
   the QR code on a sign. A phone or laptop keeps the code after the first time and plays free on it (5 on the keyboard
   changes the code).
 * **The booth's own machine:** add `&booth`: `…/?event=pgconfeu&booth`. Every game takes a code and the machine keeps
-  none, so each player enters their own. Not a secret: it only changes what the machine remembers.
+  none, so each player enters their own. Not a secret: it only changes what the machine remembers. Secret codes
+  (ExpertOps for bored booth staff, say) last one game there and are never remembered; a game nobody can lose
+  (invincible, or paused) ends by itself after 90 seconds with nobody touching anything, without a score.
 * `&code=457123` fills a code in, for example in a link in the welcome email.
 * **The leaderboard screen** for a second monitor: add `&board`: `…/?event=pgconfeu&board`. The event's TOP 10, big and
   refreshing every 15 seconds (new scores flash), with the event logo, the prize line, and QR codes to get a play code

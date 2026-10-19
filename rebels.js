@@ -828,30 +828,39 @@
      run as assisted, and assisted runs stay on this browser's table, never the world table. */
   const fingerprint = (s) => { let x = 2166136261; for (const c of s) { x ^= c.charCodeAt(0); x = Math.imul(x, 16777619) >>> 0; } return x.toString(36); };
   const Cheat = {
-    tier: "akzrea", full: "1ez5kfm", buf: "", armedAt: -99, before: "",
+    tier: "akzrea", full: "1ez5kfm", lead: "1t4nwzj", buf: "", armedAt: -99, before: "",
+    // the directions are in: the next B and A belong to the code, not to "start" or "fire"
+    get leading() { return fingerprint(this.buf.slice(-8)) === this.lead || fingerprint(this.buf.slice(-9, -1)) === this.lead; },
     // after the first code, the next keys and buttons belong to the code (so they don't steer, pause or toggle anything)
     get armed() { return G.t - this.armedAt < 6; },
     feed(token) {
       this.buf = (this.buf + token).slice(-30);
-      if (fingerprint(this.buf.slice(-21)) === this.full) {             // the long code: undo the tier toggle it passed through
+      // B and A in either order: controllers number buttons by position, and Nintendo-style ones swap the labels
+      const swapAB = (s) => s.replace(/[AB]/g, (c) => (c === "A" ? "B" : "A"));
+      const is = (s, fp, n) => fingerprint(s) === fp || fingerprint(swapAB(s.slice(0, n)) + s.slice(n)) === fp;
+      if (is(this.buf.slice(-21), this.full, 10)) {             // the long code: undo the tier toggle it passed through
         this.buf = ""; this.armedAt = -99; G.support = this.before; store.set("support", G.support);
-        G.ops = !G.ops; store.set("ops", G.ops);
+        G.ops = !G.ops; if (!BOOTH) store.set("ops", G.ops);
         toast(G.ops ? "EXPERTOPS: WE RUN IT. YOU CAN'T LOSE" : "EXPERTOPS CANCELLED. BACK TO DIY"); AU[G.ops ? "power" : "over"]();
         return;
       }
-      if (fingerprint(this.buf.slice(-10)) !== this.tier) return;
+      if (!is(this.buf.slice(-10), this.tier, 10)) return;
       this.before = G.support; this.armedAt = G.t;
-      const twice = this.buf.length >= 20 && fingerprint(this.buf.slice(-20, -10)) === this.tier;
+      const twice = this.buf.length >= 20 && is(this.buf.slice(-20, -10), this.tier, 10);
       if (twice && G.support === "advanced") setSupport("premium");
       else setSupport(G.support ? "" : "advanced");
     },
   };
   function setSupport(level) {
-    G.support = level; store.set("support", level);
+    G.support = level; if (!BOOTH) store.set("support", level);
     toast(level === "premium" ? "PREMIUM SUPPORT: SHIELD BACK EVERY 15 SEC" : level ? "ADVANCED SUPPORT ACTIVATED. RESPONSE TIME: 30 MIN" : "SUPPORT CANCELLED. WE'LL MISS YOU");
     AU[level ? "oneUp" : "over"]();
   }
   const assistedNow = () => G.support === "premium" || G.ops;
+  // The booth's shared machine (&booth): codes last for one game and are never remembered, so a prank can't make the
+  // next player's run "assisted" (it would never reach the board).
+  const BOOTH = !!(EVENT && EVENT.booth);
+  function resetBoothCodes() { if (BOOTH) { G.ops = false; G.support = ""; Cheat.buf = ""; Cheat.armedAt = -99; } }
 
   /* ================================================================== stars */
   function seedStars() {
@@ -1514,6 +1523,7 @@
     const lines = [Tokens.free ? (document.body.classList.contains("touch") ? "TAP: START" : "ENTER / SPACE: START   5: CHANGE CODE") : event ? "ENTER / TAP: TOKEN (YOUR PLAY CODE), THEN START" : "ENTER / SPACE / TAP: COIN, THEN START", "ARROWS OR WASD MOVE   SPACE FIRE", PUBLIC ? "P OR ESC PAUSE   M SOUND   C CRT" : `P PAUSE   M SOUND   C CRT   ESC ${BACK_NAME}`];
     lines.forEach((l, i) => text(l, W / 2, 180 + i * 9, C.dim, { small: true, align: "center" }));
     if (Pilot.ready) text("CHOOSE YOUR PILOT FROM THE ARCADE ROSTER", W / 2, 214, C.teal, { small: true, align: "center" });
+    if (assistedNow()) text(`${G.ops ? "EXPERTOPS" : "PREMIUM SUPPORT"} ON: ${atEvent() ? "NOT ON THE BOARD" : "SCORES STAY HERE"}`, W / 2, 172, C.red, { small: true, align: "center" });
     if (World.prize) text(World.prize, W / 2, 228, C.yellow, { small: true, align: "center" });
     else if (t > 0.1) text(`BONUS SHIP EVERY ${RULES.extraLifeEvery.toLocaleString("en-US")} PTS`, W / 2, 228, C.lilac, { small: true, align: "center" });
     text(`(C) ${new Date().getFullYear()} PERCONA   THE WAY IS OPEN`, 6, H - 8, C.faint, { small: true });
@@ -1692,7 +1702,7 @@
     });
   }
   function toGameOver() {
-    const w = G.world; Music.stop(); AU.over(); Suspend.clear();
+    const w = G.world; Music.stop(); AU.over(); Suspend.clear(); resetBoothCodes();
     G.mode = "gameover"; G.over = { t: 0, assisted: !!w.assisted, score: w.score, wave: w.wave, kills: w.kills, secs: Math.round(w.t), acc: w.shots ? Math.round((100 * w.hits) / w.shots) : 0 };
     World.rank = null; World.note = "";
   }
@@ -1752,7 +1762,8 @@
     if (G.resumed) { text("WELCOME BACK!", W / 2, 96, C.teal, { align: "center" }); text("YOUR GAME WAS SAVED RIGHT HERE", W / 2, 108, C.dim, { small: true, align: "center" }); }
     text("PAUSED", W / 2, 120, C.yellow, { align: "center", scale: 2, shadow: C.purple });
     const touch = document.body.classList.contains("touch"), armed = G.quitAt && G.t - G.quitAt < 3;
-    text(armed ? (touch ? "TAP END AGAIN TO END THIS GAME" : "Q AGAIN TO END THIS GAME") : touch ? "END (TOP RIGHT): END THIS GAME" : "Q: END THIS GAME", W / 2, 172, armed ? C.red : C.dim, { small: true, align: "center" });
+    const how = touch ? ["END (TOP RIGHT): END THIS GAME", "TAP END AGAIN TO END THIS GAME"] : ["Q: END THIS GAME", "Q AGAIN TO END THIS GAME"];
+    text(how[armed ? 1 : 0], W / 2, 172, armed ? C.red : C.dim, { small: true, align: "center" });
     if (PUBLIC) {
       text(touch ? "II TO RESUME" : "P OR ESC TO RESUME", W / 2, 148, C.white, { small: true, align: "center" });
       text(`${BACK_NAME} IS THE LINK TOP LEFT`, W / 2, 158, C.dim, { small: true, align: "center" });
@@ -1808,15 +1819,19 @@
       for (const [i, a] of PADMAP) if (gp.buttons[i] && gp.buttons[i].pressed) IN.pad.add(a);
       const x = gp.axes[0] || 0, y = gp.axes[1] || 0;
       if (Math.abs(x) > 0.25) IN.ax = clamp(x, -1, 1); if (Math.abs(y) > 0.25) IN.ay = clamp(y, -1, 1);
+      if (gp.buttons.some((b) => b && b.pressed) || Math.abs(x) > 0.25 || Math.abs(y) > 0.25) G.lastInput = G.t;
       if (x < -0.5) IN.pad.add("left"); if (x > 0.5) IN.pad.add("right"); if (y < -0.5) IN.pad.add("up"); if (y > 0.5) IN.pad.add("down");
     }
     for (const a of IN.pad) if (!IN.padPrev.has(a)) {
       AU.unlock();
       const codeMode = G.mode !== "pilot" && G.mode !== "playcode" && G.mode !== "initials";
       if (codeMode && Cheat.armed && (a === "back" || a === "start")) { Cheat.feed(a === "back" ? "SELECT" : "START"); continue; }
-      IN.pressed.add(a);
       const t = { up: "U", down: "D", left: "L", right: "R", cancel: "B", fire: "A" }[a];
-      if (t && codeMode) Cheat.feed(t);
+      if (t && codeMode) {
+        const was = Cheat.armedAt; Cheat.feed(t);
+        if (Cheat.armedAt !== was || ((a === "fire" || a === "cancel") && Cheat.leading)) continue;   // a code's B and A aren't also a start
+      }
+      IN.pressed.add(a);
     }
   }
   addEventListener("gamepadconnected", () => toast("GAMEPAD READY"));
@@ -1854,8 +1869,15 @@
   function quitGame() {
     if (G.mode !== "game" || !G.paused) return;
     if (!(G.quitAt && G.t - G.quitAt < 3)) { G.quitAt = G.t; AU.blip(300); return; }
-    G.quitAt = 0; Music.stop(); Suspend.clear(); setPause(false); G.world = null; G.mode = "attract"; setAttract(0); AU.blip(200);
+    endGame(); AU.blip(200);
   }
+  // ends the run without a score: END GAME, or the booth's walk-away timer
+  function endGame() { G.quitAt = 0; Music.stop(); Suspend.clear(); resetBoothCodes(); setPause(false); G.world = null; G.mode = "attract"; setAttract(0); }
+  // The booth (&booth): a game nobody can lose (paused, or ExpertOps / Premium Support on) ends itself after this long
+  // with nobody touching anything, so the next visitor never walks up to someone else's endless run.
+  const BOOTH_IDLE = 90;
+  const touched = () => { G.lastInput = G.t; };
+  addEventListener("keydown", touched, true); addEventListener("pointerdown", touched, true); addEventListener("pointermove", touched, true);
   function setPause(on) { G.paused = on; G.pauseEsc = false; G.quitAt = 0; document.body.classList.toggle("paused", on); if (!on) G.resumed = false; if (on) Music.stop(); else if (G.world && !G.world.demo) Music.start(G.world.isBoss); AU.blip(on ? 400 : 800); }
   function leave() {
     Music.stop(); Suspend.save();
@@ -2115,7 +2137,9 @@
     if (G.toast && (G.toast.t += dt) > 1.4) G.toast = null;
     switch (G.mode) {
       case "attract": case "pilot": case "playcode": updateAttract(dt); break;
-      case "game": if (!G.paused) { stepWorld(G.world, dt, control()); if (G.world.phase === "over" && G.world.phaseT > 2.6) toGameOver(); } break;
+      case "game":
+        if (BOOTH && (G.paused || assistedNow()) && G.t - (G.lastInput || 0) > BOOTH_IDLE) { endGame(); break; }
+        if (!G.paused) { stepWorld(G.world, dt, control()); if (G.world.phase === "over" && G.world.phaseT > 2.6) toGameOver(); } break;
       case "gameover": G.over.t += dt; if (G.world) stepWorld(G.world, dt, {}); if (G.over.t > 7) finishGameOver(); break;
       case "initials": G.ini.t += dt; if (G.ini.t > 45) Ini.submit(); break;
       case "scores": G.scoresT += dt; if (G.scoresT > (World.qr ? 21 : World.on ? 12 : 9)) { G.mode = "attract"; setAttract(0); } break;
@@ -2158,9 +2182,9 @@
     SHIP.title = buildMark(C.white, 44); SHIP.titleShadow = silhouette(SHIP.title, C.purple); setFavicon();
     if (BOARD) { Board.start(); return; }                                       // the leaderboard screen: no game
     if (G.pilot) buildShip(G.pilot.color);
-    const savedSupport = store.get("support", "");
+    const savedSupport = BOOTH ? "" : store.get("support", "");
     G.support = savedSupport === true ? "advanced" : ["advanced", "premium"].includes(savedSupport) ? savedSupport : "";
-    G.ops = !!store.get("ops", false);
+    G.ops = !BOOTH && !!store.get("ops", false);
     loadLocalSprites(); Pilot.load(); PlayCode.init(); updateSoundIcon(); World.refresh(); document.body.classList.toggle("public", PUBLIC);
     // the app manifest (installing to the home screen or Dock). Linked from here, not the HTML, because browsers refuse
     // manifest files on file:// pages. Single-file builds carry it inline with the page's own address as start URL.
@@ -2180,7 +2204,7 @@
     resize(); addEventListener("resize", resize); applyCrt(); setAttract(0); Suspend.restore();
     requestAnimationFrame(frame);
     // hooks for tests: only in builds without the shared world table, so they can't be used to fake a world score
-    const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, get powerups() { return POWERUPS.map((p) => p.id); }, get powerupArt() { return !!PU.art; }, version: 2 };
+    const info = { get mode() { return G.mode; }, World: { get status() { return World.status; }, get note() { return World.note; } }, get powerups() { return POWERUPS.map((p) => p.id); }, get powerupArt() { return !!PU.art; }, get assisted() { return assistedNow(); }, version: 2 };
     window.PERCONA_REBELS = World.on ? info : {
       get mode() { return G.mode; }, get world() { return G.world; }, get state() { return G; }, ENEMIES, BOSSES, POWERUPS, RULES, World,
       give(id) { const P = ALL_POWERUPS.find((x) => x.id === id); if (G.world && P) applyPower(G.world, { P }); },
